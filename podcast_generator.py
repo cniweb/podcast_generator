@@ -61,6 +61,15 @@ def _spell_out_abbreviations(text: str) -> str:
 
     return pattern.sub(repl, text)
 
+
+def _strip_formatting(text: str) -> str:
+    """Remove simple formatting markers like asterisks to avoid TTS artifacts."""
+    # Remove asterisks and stray brackets often used for emphasis or stage directions
+    text = re.sub(r"[\*]+", "", text)
+    text = re.sub(r"\[\s*([^\]]+)\s*\]", r"\1", text)
+    text = re.sub(r"\(\s*([^\)]+)\s*\)", r"\1", text)
+    return text
+
 def pick_available_model(preferences: List[str]) -> str:
     """Wählt das erste verfügbare Modell aus den Präferenzen."""
     try:
@@ -165,6 +174,7 @@ class PodcastGenerator:
                 self.sources = []
 
             cleaned_text = "\n".join(kept_lines)
+            cleaned_text = _strip_formatting(cleaned_text)
             self.script_content = _spell_out_abbreviations(cleaned_text)
 
             self.transcript_path = f"{TEMP_DIR}/script.txt"
