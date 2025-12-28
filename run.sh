@@ -16,6 +16,7 @@ fi
 
 TOPIC="$1"
 SCRIPT_FILE="podcast_generator.py"
+ENV_FILE=".env"
 
 # 2. DATEI CHECK
 if [ ! -f "$SCRIPT_FILE" ]; then
@@ -23,12 +24,27 @@ if [ ! -f "$SCRIPT_FILE" ]; then
     exit 1
 fi
 
-# 3. API KEY VALIDIERUNG (Pre-Flight Check)
-# Wir prüfen, ob noch die Platzhalter im Python-Skript stehen
-if grep -q "DEIN_GEMINI_API_KEY" "$SCRIPT_FILE" || grep -q "DEIN_PIXABAY_API_KEY" "$SCRIPT_FILE"; then
-    echo -e "${RED}ACHTUNG: Es scheinen noch Platzhalter für API-Keys in $SCRIPT_FILE zu sein.${NC}"
-    echo -e "Bitte bearbeite die Datei und trage deine echten Keys ein, bevor du startest."
+# 3. ENV CHECK (API Keys und Pfade)
+if [ ! -f "$ENV_FILE" ]; then
+    echo -e "${RED}Fehler: $ENV_FILE fehlt. Bitte aus Vorlage anlegen und Keys eintragen.${NC}"
     exit 1
+fi
+
+set -a
+source "$ENV_FILE"
+set +a
+
+for var in GEMINI_API_KEY PIXABAY_API_KEY GOOGLE_APPLICATION_CREDENTIALS; do
+    value=${!var}
+    if [ -z "$value" ] || [[ "$value" == your_* ]]; then
+        echo -e "${RED}Fehler: $var ist nicht gesetzt oder noch Platzhalter.${NC}"
+        exit 1
+    fi
+done
+
+if [ ! -f "$GOOGLE_APPLICATION_CREDENTIALS" ]; then
+    echo -e "${YELLOW}Warnung: GOOGLE_APPLICATION_CREDENTIALS Datei wurde unter '$GOOGLE_APPLICATION_CREDENTIALS' nicht gefunden.${NC}"
+    echo -e "${YELLOW}Stelle sicher, dass der Pfad im .env korrekt ist.${NC}"
 fi
 
 # 4. VIRTUAL ENVIRONMENT (.venv) SETUP
@@ -47,9 +63,14 @@ if [ -f "setup.sh" ]; then
     chmod +x setup.sh
     # Wir führen setup.sh aus. Da wir im venv sind, nutzt es das pip des venvs.
     ./setup.sh
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}Setup fehlgeschlagen. Breche ab.${NC}"
+        deactivate
+        exit 1
+    fi
 else
     echo -e "${RED}Warnung: setup.sh nicht gefunden. Versuche manuelle Installation...${NC}"
-    pip install -r requirements.txt
+    pip install -r requirements.txt || { echo -e "${RED}pip install fehlgeschlagen.${NC}"; deactivate; exit 1; }
 fi
 
 # 6. PROGRAMM STARTEN
