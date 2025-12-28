@@ -419,12 +419,21 @@ class PodcastGenerator:
         if self.music_path and os.path.exists(self.music_path):
             music = AudioSegment.from_mp3(self.music_path)
             music = music - 18 
-            
-            while len(music) < len(voice) + 5000:
-                music += music
-            music = music[:len(voice) + 5000]
-            music = music.fade_out(3000)
-            final = music.overlay(voice, position=500)
+
+            def _loop_music(track: AudioSegment, target_ms: int, crossfade_ms: int = 400) -> AudioSegment:
+                """Loop music with crossfade to avoid gaps until target length."""
+                out = track
+                while len(out) < target_ms:
+                    remaining = target_ms - len(out)
+                    # Take only what we need from the next chunk to avoid overrun
+                    chunk = track[:remaining]
+                    out = out.append(chunk, crossfade=crossfade_ms)
+                return out[:target_ms]
+
+            target_len = len(voice) + 3000  # small pad for fade out
+            music = _loop_music(music, target_len)
+            music = music.fade_out(2000)
+            final = music.overlay(voice, position=300)
         else:
             final = voice
 
