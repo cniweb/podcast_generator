@@ -205,4 +205,10 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Credentials
 google_cloud_credentials.json
+
+# Temporary assets
+temp_assets/
+fertige_episoden/
