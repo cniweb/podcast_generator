@@ -256,7 +256,7 @@ class PodcastGenerator:
         self.final_audio_path = os.path.join(OUTPUT_DIR, filename)
 
         final_audio.export(self.final_audio_path, format="mp3", bitrate="192k")
-        print(f"✅ AUDIO EPISODE FERTIG: {self.final_audio_path}")
+        print(f"   -> AUDIO EPISODE FERTIG: {self.final_audio_path}")
 
     # --------------------------------------------------------------------------
     # SCHRITT 6: VIDEO GENERIERUNG (FFmpeg)
@@ -292,7 +292,7 @@ class PodcastGenerator:
         try:
             # subprocess.run führt den Befehl im Terminal aus
             subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT, check=True)
-            print(f"✅ VIDEO FERTIG: {self.final_video_path}")
+            print(f"   -> VIDEO FERTIG: {self.final_video_path}")
         except subprocess.CalledProcessError as e:
             print(f"❌ Video Rendering Fehler: {e}")
             print("   Stelle sicher, dass FFmpeg installiert ist.")
