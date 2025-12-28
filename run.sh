@@ -17,6 +17,12 @@ fi
 TOPIC="$1"
 SCRIPT_FILE="podcast_generator.py"
 ENV_FILE=".env"
+PYTHON_BIN=${PYTHON_BIN:-python3}
+
+# Bevor wir das venv bauen: bevorzugt Python 3.12 (audioop vorhanden)
+if command -v python3.12 >/dev/null 2>&1; then
+    PYTHON_BIN=python3.12
+fi
 
 # 2. DATEI CHECK
 if [ ! -f "$SCRIPT_FILE" ]; then
@@ -47,10 +53,20 @@ if [ ! -f "$GOOGLE_APPLICATION_CREDENTIALS" ]; then
     echo -e "${YELLOW}Stelle sicher, dass der Pfad im .env korrekt ist.${NC}"
 fi
 
+# 3b. Prüfen ob audioop Modul verfügbar (oder via audioop-lts installiert)
+if ! $PYTHON_BIN - <<'PY'
+import importlib.util
+import sys
+sys.exit(0 if importlib.util.find_spec('audioop') else 1)
+PY
+then
+    echo -e "${YELLOW}Hinweis: 'audioop' fehlt in ${PYTHON_BIN}. Wir installieren 'audioop-lts' über requirements.txt.${NC}"
+fi
+
 # 4. VIRTUAL ENVIRONMENT (.venv) SETUP
 if [ ! -d ".venv" ]; then
     echo -e "${YELLOW}Erstelle virtuelles Python-Environment (.venv)...${NC}"
-    python3 -m venv .venv
+    $PYTHON_BIN -m venv .venv
 fi
 
 # Aktivieren des Environments
