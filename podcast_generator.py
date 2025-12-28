@@ -12,7 +12,7 @@ from pydub import AudioSegment
 # ==============================================================================
 # Trage hier deine API-Keys ein
 GEMINI_API_KEY = "DEIN_GEMINI_API_KEY"
-GOOGLE_APPLICATION_CREDENTIALS = "pfad/zu/deinem/google_cloud_credentials.json" # Für TTS
+GOOGLE_APPLICATION_CREDENTIALS = "oogle_cloud_credentials.json" # Für TTS
 PIXABAY_API_KEY = "DEIN_PIXABAY_API_KEY"
 
 # Podcast Einstellungen
