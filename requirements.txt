@@ -1,0 +1,5 @@
+google-generativeai
+google-cloud-texttospeech
+pytrends
+pydub
+requests
