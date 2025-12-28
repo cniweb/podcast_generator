@@ -4,6 +4,7 @@ import requests
 import json
 import subprocess
 import re
+import io
 from pytrends.request import TrendReq
 from google import genai
 from google.genai import errors as genai_errors
@@ -71,22 +72,93 @@ def _strip_formatting(text: str) -> str:
     return text
 
 
+def _split_sentences(text: str) -> List[str]:
+    parts = re.split(r"(?<=[\.\?!])\s+", text.strip())
+    return [p.strip() for p in parts if p.strip()]
+
+
+def _soft_break_sentence(sentence: str, max_len: int = 180) -> str:
+    words = sentence.split()
+    lines = []
+    buf = []
+    buf_len = 0
+    for w in words:
+        if buf_len + len(w) + 1 > max_len:
+            lines.append(" ".join(buf))
+            buf = [w]
+            buf_len = len(w)
+        else:
+            buf.append(w)
+            buf_len += len(w) + 1
+    if buf:
+        lines.append(" ".join(buf))
+    return " <break time=\"200ms\"/> ".join(lines)
+
+
 def _to_ssml(text: str) -> str:
-    """Wrap plain text in basic SSML with paragraph breaks and gentle pauses."""
+    """Wrap text in SSML with short sentences and soft breaks to satisfy TTS limits."""
     def _escape_ssml(value: str) -> str:
         return value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
     paragraphs = [p.strip() for p in text.strip().split("\n\n") if p.strip()]
+    sentences: List[str] = []
+    for para in paragraphs:
+        sentences.extend(_split_sentences(para))
+
     ssml_parts = ["<speak>"]
-    for idx, para in enumerate(paragraphs):
-        ssml_parts.append(f"<p>{_escape_ssml(para)}</p>")
-        if idx != len(paragraphs) - 1:
-            ssml_parts.append("<break time=\"400ms\"/>")
+    for idx, sent in enumerate(sentences):
+        paced = _soft_break_sentence(sent)
+        ssml_parts.append(_escape_ssml(paced))
+        if idx != len(sentences) - 1:
+            ssml_parts.append("<break time=\"240ms\"/>")
     ssml_parts.append("</speak>")
     return "".join(ssml_parts)
 
+
+def _chunk_text(text: str, max_chars: int = 1200) -> List[str]:
+    """Chunk text to respect TTS 5000-byte limit (UTF-8 ~ chars)."""
+    paragraphs = [p for p in text.split("\n\n") if p.strip()]
+    chunks = []
+    current = []
+    current_len = 0
+
+    for para in paragraphs:
+        para_len = len(para)
+        if para_len > max_chars:
+            # Hard split overly long paragraph
+            words = para.split()
+            buf = []
+            buf_len = 0
+            for w in words:
+                if buf_len + len(w) + 1 > max_chars:
+                    chunks.append(" ".join(buf))
+                    buf = [w]
+                    buf_len = len(w)
+                else:
+                    buf.append(w)
+                    buf_len += len(w) + 1
+            if buf:
+                chunks.append(" ".join(buf))
+            current = []
+            current_len = 0
+            continue
+
+        if current_len + para_len + 2 <= max_chars:
+            current.append(para)
+            current_len += para_len + 2
+        else:
+            if current:
+                chunks.append("\n\n".join(current))
+            current = [para]
+            current_len = para_len
+
+    if current:
+        chunks.append("\n\n".join(current))
+
+    return chunks
+
 def pick_available_model(preferences: List[str]) -> str:
-    """Wählt das erste verfügbare Modell aus den Präferenzen."""
+    """Wählt das bestmögliche Modell anhand der Präferenz-Reihenfolge."""
     try:
         available = list(client.models.list())
     except Exception as e:
@@ -96,20 +168,24 @@ def pick_available_model(preferences: List[str]) -> str:
 
     blocked_tokens = ["embedding", "tts", "image", "imagen", "veo", "computer-use", "robotics", "aqa", "native-audio"]
 
-    # 1. Pass: Exakte Übereinstimmung
+    # Filter auf zulässige Gemini-Modelle
+    candidates = []
     for model in available:
         short = model.name.split("/")[-1]
-        if any(tok in short for tok in blocked_tokens): continue
-        for pref in preferences:
-            if short == pref or short.endswith(pref):
-                return model.name
+        if any(tok in short for tok in blocked_tokens):
+            continue
+        candidates.append((short, model.name))
 
-    # 2. Pass: Irgendein Gemini Modell
-    for model in available:
-        short = model.name.split("/")[-1]
-        if any(tok in short for tok in blocked_tokens): continue
+    # 1. Pass: Präferenzen-Reihenfolge priorisieren (exakt/endswith)
+    for pref in preferences:
+        for short, full in candidates:
+            if short == pref or short.endswith(pref):
+                return full
+
+    # 2. Pass: Irgendein verbleibendes Gemini-Modell
+    for short, full in candidates:
         if "gemini" in short:
-            return model.name
+            return full
 
     return "gemini-2.0-flash" # Harter Fallback
 
@@ -160,7 +236,7 @@ class PodcastGenerator:
         Vorgaben:
         1. Sprache: Deutsch, locker, duzend, ichform, energetisch, klingt wie ein 30-jähriger Host, kurze Sätze, direkte Fragen, ohne Slang-Overkill.
         2. Struktur: Intro (mit Slogan), Hauptteil mit 3 knackigen Fakten (je 2-3 Sätze), kurzes Outro als freundlicher Abschluss ohne Call-to-Action.
-        3. Formatierung: NUR gesprochener Text. Keine Regieanweisungen.
+        3. Formatierung: NUR gesprochener Text. Keine Regieanweisungen, keine Sound-Effekte, keine Geräusch-/Musikbeschreibungen, keine Hinweise wie "Sound von einem kurzen, energiegeladenen Audio-Jingle", kein "Sound-Effekt:" oder "SFX" oder "Jingle" am Zeilenanfang.
         4. Länge: Ca. 600-700 Wörter.
         5. Ende mit Hashtag #Gehirntakko.
         6. Am Textende ergänze eine Zeile im Format: "QUELLEN: Quelle1 (Jahr); Quelle2 (Jahr); ..." (max. 3 Quellen, inkl. URLs). Diese Zeile ist NUR für Metadaten, wird nicht gesprochen.
@@ -168,6 +244,7 @@ class PodcastGenerator:
         
         preferred = ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-pro-latest"]
         model_name = pick_available_model(preferred)
+        print(f"   -> Verwende Modell: {model_name}")
 
         try:
             response = client.models.generate_content(model=model_name, contents=prompt)
@@ -208,7 +285,6 @@ class PodcastGenerator:
         os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = GOOGLE_APPLICATION_CREDENTIALS
 
         client_tts = texttospeech.TextToSpeechClient()
-        synthesis_input = texttospeech.SynthesisInput(ssml=_to_ssml(self.script_content))
 
         # Deine Wahl: Studio-B (Männlich, sehr natürlich)
         voice = texttospeech.VoiceSelectionParams(
@@ -220,16 +296,30 @@ class PodcastGenerator:
         audio_config = texttospeech.AudioConfig(
             audio_encoding=texttospeech.AudioEncoding.MP3,
             speaking_rate=1.04,
-            pitch=2.0
+            pitch=2
         )
 
-        response = client_tts.synthesize_speech(
-            input=synthesis_input, voice=voice, audio_config=audio_config
-        )
+        chunks = _chunk_text(self.script_content)
+        segments: List[AudioSegment] = []
+        for idx, chunk in enumerate(chunks):
+            ssml = _to_ssml(chunk)
+            synthesis_input = texttospeech.SynthesisInput(ssml=ssml)
+            response = client_tts.synthesize_speech(
+                input=synthesis_input, voice=voice, audio_config=audio_config
+            )
+            seg = AudioSegment.from_file(io.BytesIO(response.audio_content), format="mp3")
+            segments.append(seg)
+            print(f"   -> TTS Chunk {idx+1}/{len(chunks)} generiert ({len(chunk)} Zeichen)")
+
+        if not segments:
+            raise RuntimeError("TTS lieferte keine Segmente.")
+
+        final_voice = segments[0]
+        for seg in segments[1:]:
+            final_voice += seg
 
         self.audio_voice_path = f"{TEMP_DIR}/voice_raw.mp3"
-        with open(self.audio_voice_path, "wb") as out:
-            out.write(response.audio_content)
+        final_voice.export(self.audio_voice_path, format="mp3")
         print("   -> Sprachdatei erstellt.")
 
     # --------------------------------------------------------------------------
