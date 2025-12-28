@@ -179,7 +179,7 @@ class PodcastGenerator:
         # Stimme konfigurieren (Männlich, Deutsch, Neural2-B ist sehr natürlich)
         voice = texttospeech.VoiceSelectionParams(
             language_code="de-DE",
-            name="de-DE-Neural2-B",
+            name="de-DE-Studio-B",
             ssml_gender=texttospeech.SsmlVoiceGender.MALE
         )
 
@@ -213,14 +213,30 @@ class PodcastGenerator:
             print("   -> Lokale Musikdatei 'background_loop.mp3' gefunden.")
             return
 
-        # Fallback API Logic (vereinfacht)
+        # Fallback API Logic (vereinfacht): versuche mehrere Queries, sonst Dummy
         try:
-            query = "lofi study beat"
-            music_url = f"https://pixabay.com/api/?key={PIXABAY_API_KEY}&q={query}&audio_type=music"
-            # Hier würde der echte Download stattfinden.
-            # Für Demo erzeugen wir Stille oder Dummy, falls keine API Antwort.
-            
-            print("   -> Keine lokale Musik gefunden, erzeuge Dummy (Stille)...")
+            queries = [
+                f"{self.topic} instrumental",
+                f"{self.topic} background",
+                "lofi study beat",
+                "ambient background",
+                "cinematic soft",
+            ]
+
+            for q in queries:
+                music_url = f"https://pixabay.com/api/?key={PIXABAY_API_KEY}&q={q}&audio_type=music"
+                r = requests.get(music_url, timeout=10)
+                data = r.json() if r.ok else {}
+                hits = data.get("hits") or []
+                if hits:
+                    page_url = hits[0].get("pageURL") or hits[0].get("previewURL") or hits[0].get("videos", {}).get("small", {}).get("url")
+                    # Hier müsste real der Download des MP3 erfolgen; wir nutzen Dummy, wenn keine direkte URL verfügbar ist
+                    print(f"   -> Treffer für '{q}' gefunden (Seite: {page_url}). Nutze Dummy mangels Direktlink.")
+                    self.music_path = f"{TEMP_DIR}/music_dummy.mp3"
+                    AudioSegment.silent(duration=10000).export(self.music_path, format="mp3")
+                    return
+
+            print("   -> Keine passenden Treffer, erzeuge Dummy (Stille)...")
             self.music_path = f"{TEMP_DIR}/silence.mp3"
             AudioSegment.silent(duration=10000).export(self.music_path, format="mp3")
 
