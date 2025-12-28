@@ -1,6 +1,7 @@
-google-generativeai
+google-genai
 google-cloud-texttospeech
 pytrends
 pydub
 requests
+audioop-lts
 python-dotenv
