@@ -97,6 +97,8 @@ class PodcastGenerator:
         self.music_path = ""
         self.final_audio_path = ""
         self.final_video_path = ""
+        self.sources = []
+        self.transcript_path = ""
         print(f"🚀 Starte Produktion für Thema: {topic}")
 
     # --------------------------------------------------------------------------
@@ -137,6 +139,7 @@ class PodcastGenerator:
         3. Formatierung: NUR gesprochener Text. Keine Regieanweisungen.
         4. Länge: Ca. 400-500 Wörter.
         5. Ende mit Hashtag #Gehirntakko.
+        6. Am Textende ergänze eine Zeile im Format: "QUELLEN: Quelle1 (Jahr); Quelle2 (Jahr); ..." (max. 3 Quellen, keine URLs).
         """
         
         preferred = ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-pro-latest"]
@@ -144,9 +147,22 @@ class PodcastGenerator:
 
         try:
             response = client.models.generate_content(model=model_name, contents=prompt)
-            self.script_content = _spell_out_abbreviations(response.text)
-            with open(f"{TEMP_DIR}/script.txt", "w", encoding="utf-8") as f:
+            raw_text = response.text
+            self.script_content = _spell_out_abbreviations(raw_text)
+            self.transcript_path = f"{TEMP_DIR}/script.txt"
+            with open(self.transcript_path, "w", encoding="utf-8") as f:
                 f.write(self.script_content)
+            # Quellen aus expliziter QUELLEN-Zeile parsen
+            sources_line = ""
+            for line in raw_text.splitlines():
+                if line.strip().upper().startswith("QUELLEN:"):
+                    sources_line = line
+                    break
+            if sources_line:
+                parts = sources_line.split(":", 1)[-1]
+                self.sources = [s.strip() for s in parts.split(";") if s.strip()]
+            else:
+                self.sources = []
             print("   -> Skript generiert.")
         except Exception as e:
             raise RuntimeError(f"Gemini API Fehler: {e}")
@@ -311,7 +327,10 @@ class PodcastGenerator:
             "files": {
                 "audio": self.final_audio_path,
                 "video": self.final_video_path
-            }
+            },
+            "sources": self.sources,
+            "transcript": self.script_content,
+            "transcript_file": self.transcript_path
         }
         with open(f"{OUTPUT_DIR}/{self.topic.replace(' ', '_')}_meta.json", "w", encoding="utf-8") as f:
             json.dump(meta, f, indent=4)
