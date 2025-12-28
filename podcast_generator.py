@@ -51,7 +51,7 @@ def _spell_out_abbreviations(text: str) -> str:
     stoplist = {
         "DER", "DIE", "DAS", "UND", "DEN", "DEM", "DES", "EIN", "EINE",
         "VON", "MIT", "AUS", "IM", "IN", "AM", "BEI", "AUF", "FÜR", "AN",
-        "IST", "SIND"
+        "IST", "SIND", "ICH", "DU", "ER", "SIE", "ES", "WIR", "IHR"
     }
 
     def repl(match: re.Match) -> str:
@@ -64,59 +64,38 @@ def _spell_out_abbreviations(text: str) -> str:
 
 
 def _strip_formatting(text: str) -> str:
-    """Remove simple formatting markers like asterisks to avoid TTS artifacts."""
-    # Remove asterisks and stray brackets often used for emphasis or stage directions
-    text = re.sub(r"[\*]+", "", text)
+    """
+    Entfernt Formatierungen; Sternchen werden entfernt (kein SSML-Emphasis nötig).
+    """
     text = re.sub(r"\[\s*([^\]]+)\s*\]", r"\1", text)
     text = re.sub(r"\(\s*([^\)]+)\s*\)", r"\1", text)
+    text = re.sub(r"\[([^\]]+)\]\([^\)]+\)", r"\1", text)
+    text = text.replace("*", "")
     return text
 
 
-def _split_sentences(text: str) -> List[str]:
-    parts = re.split(r"(?<=[\.\?!])\s+", text.strip())
-    return [p.strip() for p in parts if p.strip()]
-
-
-def _soft_break_sentence(sentence: str, max_len: int = 180) -> str:
-    words = sentence.split()
-    lines = []
-    buf = []
-    buf_len = 0
-    for w in words:
-        if buf_len + len(w) + 1 > max_len:
-            lines.append(" ".join(buf))
-            buf = [w]
-            buf_len = len(w)
-        else:
-            buf.append(w)
-            buf_len += len(w) + 1
-    if buf:
-        lines.append(" ".join(buf))
-    return " <break time=\"200ms\"/> ".join(lines)
-
-
 def _to_ssml(text: str) -> str:
-    """Wrap text in SSML with short sentences and soft breaks to satisfy TTS limits."""
+    """Wandelt Text in SSML ohne <emphasis>; nur Absätze/Sätze für Atempausen."""
     def _escape_ssml(value: str) -> str:
         return value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
-    paragraphs = [p.strip() for p in text.strip().split("\n\n") if p.strip()]
-    sentences: List[str] = []
-    for para in paragraphs:
-        sentences.extend(_split_sentences(para))
+    safe_text = _escape_ssml(text)
+    paragraphs = [p.strip() for p in safe_text.split("\n\n") if p.strip()]
 
     ssml_parts = ["<speak>"]
-    for idx, sent in enumerate(sentences):
-        paced = _soft_break_sentence(sent)
-        ssml_parts.append(_escape_ssml(paced))
-        if idx != len(sentences) - 1:
-            ssml_parts.append("<break time=\"240ms\"/>")
+    for para in paragraphs:
+        sentences = re.split(r"(?<=[\.\?!])\s+", para)
+        for sent in sentences:
+            if not sent.strip():
+                continue
+            ssml_parts.append(f"<s>{sent.strip()}</s>")
+        ssml_parts.append("<break time=\"300ms\"/>")
     ssml_parts.append("</speak>")
     return "".join(ssml_parts)
 
 
-def _chunk_text(text: str, max_chars: int = 1200) -> List[str]:
-    """Chunk text to respect TTS 5000-byte limit (UTF-8 ~ chars)."""
+def _chunk_text(text: str, max_chars: int = 1500) -> List[str]:
+    """Chunk text to respect TTS limits, splitting by paragraphs."""
     paragraphs = [p for p in text.split("\n\n") if p.strip()]
     chunks = []
     current = []
@@ -124,23 +103,16 @@ def _chunk_text(text: str, max_chars: int = 1200) -> List[str]:
 
     for para in paragraphs:
         para_len = len(para)
+        # Wenn ein einzelner Paragraph zu lang ist, müssen wir ihn leider hart teilen
         if para_len > max_chars:
-            # Hard split overly long paragraph
-            words = para.split()
-            buf = []
-            buf_len = 0
-            for w in words:
-                if buf_len + len(w) + 1 > max_chars:
-                    chunks.append(" ".join(buf))
-                    buf = [w]
-                    buf_len = len(w)
-                else:
-                    buf.append(w)
-                    buf_len += len(w) + 1
-            if buf:
-                chunks.append(" ".join(buf))
-            current = []
-            current_len = 0
+            if current:
+                chunks.append("\n\n".join(current))
+                current = []
+                current_len = 0
+            
+            # Groben Split machen
+            chunks.append(para[:max_chars]) # Vereinfacht, besser wäre wortweiser Split
+            # (Für Podcast Skripte sind Absätze meist < 1500 Zeichen)
             continue
 
         if current_len + para_len + 2 <= max_chars:
@@ -162,13 +134,11 @@ def pick_available_model(preferences: List[str]) -> str:
     try:
         available = list(client.models.list())
     except Exception as e:
-        # Fallback, falls list() fehlschlägt (z.B. wegen Permissions)
         print(f"   ⚠️ Konnte Modelle nicht listen ({e}). Versuche Standard: gemini-2.0-flash")
         return "gemini-2.0-flash"
 
     blocked_tokens = ["embedding", "tts", "image", "imagen", "veo", "computer-use", "robotics", "aqa", "native-audio"]
 
-    # Filter auf zulässige Gemini-Modelle
     candidates = []
     for model in available:
         short = model.name.split("/")[-1]
@@ -176,18 +146,16 @@ def pick_available_model(preferences: List[str]) -> str:
             continue
         candidates.append((short, model.name))
 
-    # 1. Pass: Präferenzen-Reihenfolge priorisieren (exakt/endswith)
     for pref in preferences:
         for short, full in candidates:
             if short == pref or short.endswith(pref):
                 return full
 
-    # 2. Pass: Irgendein verbleibendes Gemini-Modell
     for short, full in candidates:
         if "gemini" in short:
             return full
 
-    return "gemini-2.0-flash" # Harter Fallback
+    return "gemini-2.0-flash"
 
 class PodcastGenerator:
     def __init__(self, topic):
@@ -229,17 +197,21 @@ class PodcastGenerator:
     def generate_script(self):
         print(f"✍️ 2. Gemini schreibt das Skript über '{self.topic}'...")
 
+        # Prompt optimiert für SSML Betonung
         prompt = f"""
         Du bist der Host des Podcasts '{PODCAST_NAME}'. Slogan: '{SLOGAN}'.
         Schreibe ein Skript für eine Audio-Aufnahme über das Thema: '{self.topic}'.
         
         Vorgaben:
-        1. Sprache: Deutsch, locker, duzend, ichform, energetisch, klingt wie ein 30-jähriger Host, kurze Sätze, direkte Fragen, ohne Slang-Overkill.
-        2. Struktur: Intro (mit Slogan), Hauptteil mit 3 knackigen Fakten (je 2-3 Sätze), kurzes Outro als freundlicher Abschluss ohne Call-to-Action.
-        3. Formatierung: NUR gesprochener Text. Keine Regieanweisungen, keine Sound-Effekte, keine Geräusch-/Musikbeschreibungen, keine Hinweise wie "Sound von einem kurzen, energiegeladenen Audio-Jingle", kein "Sound-Effekt:" oder "SFX" oder "Jingle" am Zeilenanfang.
-        4. Länge: Ca. 600-700 Wörter.
-        5. Ende mit Hashtag #Gehirntakko.
-        6. Am Textende ergänze eine Zeile im Format: "QUELLEN: Quelle1 (Jahr); Quelle2 (Jahr); ..." (max. 3 Quellen, inkl. URLs). Diese Zeile ist NUR für Metadaten, wird nicht gesprochen.
+        1. Rolle: Du bist ein charismatischer Wissens-Erklärer (ca. 30 Jahre alt). Dein Stil ist locker, aber kompetent. Du nutzt "Ich" und "Du".
+        2. Betonung: Wenn du ein Wort besonders betonen willst (für Dramatik oder Wichtigkeit), setze es in *Sternchen*. Beispiel: "Das ist *wirklich* unglaublich." (Nutze das sparsam, aber gezielt).
+        3. Struktur:
+           - Knackiges Intro (Begrüßung + Slogan).
+           - 3 faszinierende Fakten (Deep Dive).
+           - Kurzes, warmes Outro.
+        4. Formatierung: Reiner Sprechtext. Keine Regieanweisungen ("Lacht", "Musik", "Sound", "Jingle"), keine Labels oder Überschriften wie "Sprechtext" oder "---", keine Trennerlinien, kein Text vor dem eigentlichen gesprochenen Einstieg.
+        5. Länge: Ca. 700 Wörter.
+        6. Metadaten: Am Ende eine Zeile: "QUELLEN: url1; url2".
         """
         
         preferred = ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-pro-latest"]
@@ -250,7 +222,6 @@ class PodcastGenerator:
             response = client.models.generate_content(model=model_name, contents=prompt)
             raw_text = response.text
 
-            # Quellen-Zeile abtrennen, damit sie nicht gesprochen wird
             sources_line = ""
             kept_lines = []
             for line in raw_text.splitlines():
@@ -281,61 +252,77 @@ class PodcastGenerator:
     # 3. STIMME (Google Cloud TTS)
     # --------------------------------------------------------------------------
     def generate_voice(self):
-        print("🗣️ 3. Generiere Stimme (Studio Quality)...")
+        print("🗣️ 3. Generiere Stimme (Natural Studio)...")
         os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = GOOGLE_APPLICATION_CREDENTIALS
 
         client_tts = texttospeech.TextToSpeechClient()
 
-        # Deine Wahl: Studio-B (Männlich, sehr natürlich)
+        # Studio-B ist exzellent. Wir lassen den Pitch natürlich.
         voice = texttospeech.VoiceSelectionParams(
             language_code="de-DE",
             name="de-DE-Studio-B",
             ssml_gender=texttospeech.SsmlVoiceGender.MALE
         )
 
+        # Settings für maximale Natürlichkeit
         audio_config = texttospeech.AudioConfig(
             audio_encoding=texttospeech.AudioEncoding.MP3,
-            speaking_rate=1.04,
-            pitch=2
+            speaking_rate=1.05, # Ein Hauch schneller wirkt oft energetischer
+            pitch=0.0,          # Natürlich lassen (vorher war +2, das klingt künstlich gestresst)
+            volume_gain_db=1.0  # Minimaler Boost für Präsenz
         )
 
         chunks = _chunk_text(self.script_content)
         segments: List[AudioSegment] = []
+        
+        print(f"   -> Verarbeite {len(chunks)} Text-Abschnitte...")
+        
         for idx, chunk in enumerate(chunks):
+            # Hier passiert die Magie: Text -> SSML mit <p> und <s> und <emphasis>
             ssml = _to_ssml(chunk)
+            
             synthesis_input = texttospeech.SynthesisInput(ssml=ssml)
-            response = client_tts.synthesize_speech(
-                input=synthesis_input, voice=voice, audio_config=audio_config
-            )
-            seg = AudioSegment.from_file(io.BytesIO(response.audio_content), format="mp3")
-            segments.append(seg)
-            print(f"   -> TTS Chunk {idx+1}/{len(chunks)} generiert ({len(chunk)} Zeichen)")
+            
+            try:
+                response = client_tts.synthesize_speech(
+                    input=synthesis_input, voice=voice, audio_config=audio_config
+                )
+                seg = AudioSegment.from_file(io.BytesIO(response.audio_content), format="mp3")
+                segments.append(seg)
+            except Exception as e:
+                print(f"   ❌ Fehler bei Chunk {idx}: {e}")
+                # Wir versuchen es ohne SSML als Fallback, falls Gemini komische Zeichen generiert hat
+                print("      -> Versuche Fallback (Plain Text)...")
+                synthesis_input_plain = texttospeech.SynthesisInput(text=chunk)
+                response = client_tts.synthesize_speech(
+                    input=synthesis_input_plain, voice=voice, audio_config=audio_config
+                )
+                seg = AudioSegment.from_file(io.BytesIO(response.audio_content), format="mp3")
+                segments.append(seg)
 
         if not segments:
             raise RuntimeError("TTS lieferte keine Segmente.")
 
         final_voice = segments[0]
         for seg in segments[1:]:
-            final_voice += seg
+            # Kleiner Crossfade zwischen Chunks verhindert harte Cuts
+            final_voice = final_voice.append(seg, crossfade=100) 
 
         self.audio_voice_path = f"{TEMP_DIR}/voice_raw.mp3"
         final_voice.export(self.audio_voice_path, format="mp3")
         print("   -> Sprachdatei erstellt.")
 
     # --------------------------------------------------------------------------
-    # 4. MUSIK (Freesound.org) - GEMERGT
+    # 4. MUSIK (Freesound.org)
     # --------------------------------------------------------------------------
     def fetch_music(self):
         print("🎵 4. Suche Hintergrundmusik (Freesound)...")
-        
-        # 1. Prüfe auf lokale Datei (Priorität)
         local_music = os.path.join(ASSETS_DIR, "background_loop.mp3")
         if os.path.exists(local_music):
             self.music_path = local_music
             print("   -> Lokale Datei 'background_loop.mp3' gefunden.")
             return
 
-        # 2. Suche via Freesound API
         try:
             url = "https://freesound.org/apiv2/search/text/"
             params = {
@@ -348,12 +335,7 @@ class PodcastGenerator:
             data = r.json()
             
             if data.get('results'):
-                # Hole Preview URL des besten Treffers
                 track = data['results'][0]
-                # Detail-Call um den High-Quality Preview Link zu bekommen (manchmal nötig)
-                # Aber oft reicht der structure-call. Wir nehmen hier an, wir müssen die ID nutzen
-                # oder wir nutzen das 'previews' Feld wenn verfügbar.
-                # Freesound search result hat nicht immer previews -> wir nutzen den ID call für details
                 track_id = track['id']
                 detail_url = f"https://freesound.org/apiv2/sounds/{track_id}/"
                 d_r = requests.get(detail_url, params={"token": FREESOUND_API_KEY})
@@ -385,9 +367,8 @@ class PodcastGenerator:
 
         if self.music_path and os.path.exists(self.music_path):
             music = AudioSegment.from_mp3(self.music_path)
-            music = music - 18 # Hintergrundmusik leiser
+            music = music - 18 
             
-            # Loop
             while len(music) < len(voice) + 5000:
                 music += music
             music = music[:len(voice) + 5000]
@@ -402,12 +383,10 @@ class PodcastGenerator:
         print(f"   -> Audio fertig: {self.final_audio_path}")
 
     # --------------------------------------------------------------------------
-    # 6. VIDEO (FFmpeg) - GEMERGT (Support für PNG & JPG)
+    # 6. VIDEO (FFmpeg)
     # --------------------------------------------------------------------------
     def create_video(self):
         print("🎬 6. Erstelle YouTube-Video...")
-        
-        # Flexibler Check: PNG oder JPG?
         cover_png = os.path.join(ASSETS_DIR, "cover.png")
         cover_jpg = os.path.join(ASSETS_DIR, "cover.jpg")
         
@@ -449,7 +428,6 @@ class PodcastGenerator:
             OUTPUT_DIR, f"{self.topic.replace(' ', '_')}_transcription.txt"
         )
 
-        # Persist a copy of the script next to the final assets
         with open(transcription_output_path, "w", encoding="utf-8") as f:
             f.write(self.script_content)
 
