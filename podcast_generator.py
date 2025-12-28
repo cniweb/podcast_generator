@@ -70,6 +70,21 @@ def _strip_formatting(text: str) -> str:
     text = re.sub(r"\(\s*([^\)]+)\s*\)", r"\1", text)
     return text
 
+
+def _to_ssml(text: str) -> str:
+    """Wrap plain text in basic SSML with paragraph breaks and gentle pauses."""
+    def _escape_ssml(value: str) -> str:
+        return value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+    paragraphs = [p.strip() for p in text.strip().split("\n\n") if p.strip()]
+    ssml_parts = ["<speak>"]
+    for idx, para in enumerate(paragraphs):
+        ssml_parts.append(f"<p>{_escape_ssml(para)}</p>")
+        if idx != len(paragraphs) - 1:
+            ssml_parts.append("<break time=\"400ms\"/>")
+    ssml_parts.append("</speak>")
+    return "".join(ssml_parts)
+
 def pick_available_model(preferences: List[str]) -> str:
     """Wählt das erste verfügbare Modell aus den Präferenzen."""
     try:
@@ -143,8 +158,8 @@ class PodcastGenerator:
         Schreibe ein Skript für eine Audio-Aufnahme über das Thema: '{self.topic}'.
         
         Vorgaben:
-        1. Sprache: Deutsch, locker, duzend, energetisch.
-        2. Struktur: Intro (mit Slogan), Hauptteil (3 Fakten, ELIF), Outro (Call-to-Action).
+        1. Sprache: Deutsch, locker, duzend, energetisch, klingt wie ein 20-jähriger Host, kurze Sätze, direkte Fragen, ohne Slang-Overkill.
+        2. Struktur: Intro (mit Slogan), Hauptteil mit 3 knackigen Fakten (je 2-3 Sätze), kurzes Outro als freundlicher Abschluss ohne Call-to-Action.
         3. Formatierung: NUR gesprochener Text. Keine Regieanweisungen.
         4. Länge: Ca. 400-500 Wörter.
         5. Ende mit Hashtag #Gehirntakko.
@@ -193,7 +208,7 @@ class PodcastGenerator:
         os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = GOOGLE_APPLICATION_CREDENTIALS
 
         client_tts = texttospeech.TextToSpeechClient()
-        synthesis_input = texttospeech.SynthesisInput(text=self.script_content)
+        synthesis_input = texttospeech.SynthesisInput(ssml=_to_ssml(self.script_content))
 
         # Deine Wahl: Studio-B (Männlich, sehr natürlich)
         voice = texttospeech.VoiceSelectionParams(
@@ -204,7 +219,8 @@ class PodcastGenerator:
 
         audio_config = texttospeech.AudioConfig(
             audio_encoding=texttospeech.AudioEncoding.MP3,
-            speaking_rate=1.05
+            speaking_rate=1.04,
+            pitch=2.0
         )
 
         response = client_tts.synthesize_speech(
