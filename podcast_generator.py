@@ -2,6 +2,7 @@ import os
 import time
 import requests
 import json
+import subprocess  # Wichtig für FFmpeg Aufrufe
 from pytrends.request import TrendReq
 from google import genai
 from google.genai import errors as genai_errors
@@ -31,10 +32,12 @@ PODCAST_NAME = "Gehirntakko"
 SLOGAN = "Wissen in unter 5 Minuten"
 TEMP_DIR = "temp_assets"
 OUTPUT_DIR = "fertige_episoden"
+ASSETS_DIR = "assets"  # Ordner für Cover-Bilder etc.
 
 # Setup Directories
 os.makedirs(TEMP_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
+os.makedirs(ASSETS_DIR, exist_ok=True)
 
 # Setup Clients (uses default endpoint)
 client = genai.Client(api_key=GEMINI_API_KEY)
@@ -81,7 +84,8 @@ class PodcastGenerator:
         self.script_content = ""
         self.audio_voice_path = ""
         self.music_path = ""
-        self.final_path = ""
+        self.final_audio_path = ""  # Umbenannt für Klarheit
+        self.final_video_path = ""  # Neu für Video
         print(f"🚀 Starte Produktion für Thema: {topic}")
 
     # --------------------------------------------------------------------------
@@ -127,12 +131,11 @@ class PodcastGenerator:
         2. Struktur:
            - Kurzes Intro mit Slogan.
            - Hauptteil: Erkläre das Thema einfach (ELIF) und nenne 3 spannende Fakten.
-           - Outro: Verabschiedung.
-        3. Formatierung: Schreibe NUR den gesprochenen Text. Keine Regieanweisungen wie *lacht* oder [Intro Musik].
+           - Outro: Verabschiedung und Call-to-Action.
+        3. Formatierung: Schreibe NUR den gesprochenen Text. Keine Regieanweisungen.
         4. Länge: Exakt so viel Text für ca. 3-4 Minuten Sprechzeit (ca. 450-500 Wörter).
         """
         # Wähle ein verfügbares Textmodell (per ListModels abgeglichen)
-        # Prefer aktuell verfügbare Textmodelle (aus ListModels ersichtlich)
         preferred = [
             "gemini-2.5-pro",
             "gemini-2.5-flash",
@@ -162,12 +165,12 @@ class PodcastGenerator:
         print("   -> Skript erfolgreich generiert.")
 
     # --------------------------------------------------------------------------
-    # SCHRITT 3: SPRACH GENERIERUNG (Google Cloud TTS / "Veo"-Ersatz)
+    # SCHRITT 3: SPRACH GENERIERUNG (Google Cloud TTS)
     # --------------------------------------------------------------------------
     def generate_voice(self):
         print("🗣️ 3. Generiere Stimme mit Google Neural2 (High Quality)...")
 
-        # Setze Umgebungsvariable für Google Auth
+        # Setze Umgebungsvariable für Google Auth (falls nicht schon durch load_dotenv gesetzt)
         os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = GOOGLE_APPLICATION_CREDENTIALS
 
         client = texttospeech.TextToSpeechClient()
@@ -202,36 +205,23 @@ class PodcastGenerator:
     def fetch_music(self):
         print("🎵 4. Suche Hintergrundmusik auf Pixabay...")
 
-        query = "lofi study beat" # Passend für "Wissen"
-        url = f"https://pixabay.com/api/videos/?key={PIXABAY_API_KEY}&q={query}&category=music"
-        # Hinweis: Pixabay Music API ist separat, oft nutzt man die Audio URL direkt wenn API Key vorhanden.
-        # Fallback Mock für diesen Code, da Pixabay Music API Endpunkte variieren:
-        # Wir laden hier exemplarisch eine freie MP3 von einer URL, wenn keine API Antwort kommt.
+        # Fallback auf lokale Datei im assets Ordner bevorzugt
+        local_music = os.path.join(ASSETS_DIR, "background_loop.mp3")
+        
+        if os.path.exists(local_music):
+            self.music_path = local_music
+            print("   -> Lokale Musikdatei 'background_loop.mp3' gefunden.")
+            return
 
-        # Hier simulieren wir den Download einer passenden Datei (Royalty Free)
-        # In der Realität: Request an Pixabay API -> URL extrahieren -> Download
+        # Fallback API Logic (vereinfacht)
         try:
-             # Beispiel: Ein generischer Royalty Free Link (Platzhalter)
-             # Du musst hier die echte Logic der Pixabay Audio API einfügen
-             # Documentation: https://pixabay.com/api/docs/#api_search_audio
-
-            music_url = f"https://pixabay.com/api/?key={PIXABAY_API_KEY}&q=lofi&audio_type=music"
-            r = requests.get(music_url)
-            data = r.json()
-
-            if data['hits']:
-                download_url = data['hits'][0]['pageURL'] # Achtung: API gibt oft nur PageURL, direct link requires scraping or full access
-                # FÜR DEMO ZWECKE: Wir nehmen an, wir haben eine lokale Datei "background_loop.mp3"
-                # da direkte MP3 Downloads via API oft Tokens brauchen.
-                if os.path.exists("assets/background_loop.mp3"):
-                     self.music_path = "assets/background_loop.mp3"
-                     print("   -> Lokale Musikdatei gefunden.")
-                     return
-
-            print("   -> Lade Default-Musik (Mock)...")
-            # In Production: requests.get(download_url)
-            self.music_path = f"{TEMP_DIR}/music.mp3"
-            # Erstelle leere Datei als Platzhalter, damit Code nicht crasht, falls kein Download
+            query = "lofi study beat"
+            music_url = f"https://pixabay.com/api/?key={PIXABAY_API_KEY}&q={query}&audio_type=music"
+            # Hier würde der echte Download stattfinden.
+            # Für Demo erzeugen wir Stille oder Dummy, falls keine API Antwort.
+            
+            print("   -> Keine lokale Musik gefunden, erzeuge Dummy (Stille)...")
+            self.music_path = f"{TEMP_DIR}/silence.mp3"
             AudioSegment.silent(duration=10000).export(self.music_path, format="mp3")
 
         except Exception as e:
@@ -248,53 +238,100 @@ class PodcastGenerator:
 
         if self.music_path and os.path.exists(self.music_path):
             music = AudioSegment.from_mp3(self.music_path)
-
-            # Musik leiser machen (-20dB)
-            music = music - 20
-
-            # Musik loopen, falls sie kürzer ist als die Stimme
-            while len(music) < len(voice) + 5000: # +5 Sek Outro Puffer
+            # Musik leiser machen (-18dB)
+            music = music - 18
+            
+            # Loop
+            while len(music) < len(voice) + 5000:
                 music += music
-
-            # Musik auf Länge der Stimme + 5 Sek trimmen
             music = music[:len(voice) + 5000]
-
-            # Fade out Musik am Ende
             music = music.fade_out(3000)
-
-            # Overlay (Stimme über Musik)
-            final_audio = music.overlay(voice, position=1000) # Stimme startet nach 1 Sekunde
+            
+            final_audio = music.overlay(voice, position=500)
         else:
             final_audio = voice
-            print("   -> Keine Musik gefunden, nutze nur Stimme.")
 
         # Export
-        filename = f"{self.topic.replace(' ', '_')}_final.mp3"
-        self.final_path = os.path.join(OUTPUT_DIR, filename)
+        filename = f"{self.topic.replace(' ', '_')}.mp3"
+        self.final_audio_path = os.path.join(OUTPUT_DIR, filename)
 
-        final_audio.export(self.final_path, format="mp3", bitrate="192k")
-        print(f"✅ EPISODE FERTIG: {self.final_path}")
+        final_audio.export(self.final_audio_path, format="mp3", bitrate="192k")
+        print(f"✅ AUDIO EPISODE FERTIG: {self.final_audio_path}")
 
     # --------------------------------------------------------------------------
-    # SCHRITT 6: METADATEN FÜR UPLOAD
+    # SCHRITT 6: VIDEO GENERIERUNG (FFmpeg)
+    # --------------------------------------------------------------------------
+    def create_video(self):
+        print("🎬 6. Erstelle Video für YouTube (MP4)...")
+        
+        # Prüfen ob Cover Bild existiert
+        cover_image = os.path.join(ASSETS_DIR, "cover.png")
+        
+        if not os.path.exists(cover_image):
+            print(f"   ⚠️ Kein 'cover.png' im Ordner '{ASSETS_DIR}' gefunden. Überspringe Video.")
+            return
+
+        video_filename = f"{self.topic.replace(' ', '_')}_video.mp4"
+        self.final_video_path = os.path.join(OUTPUT_DIR, video_filename)
+
+        # FFmpeg Befehl: Loop Bild + Audio = Video
+        cmd = [
+            "ffmpeg", "-y", # Überschreiben erzwingen
+            "-loop", "1",   # Bild loopen
+            "-i", cover_image,
+            "-i", self.final_audio_path,
+            "-c:v", "libx264",     # Video Codec H.264
+            "-tune", "stillimage", # Optimierung für Standbild
+            "-c:a", "aac",         # Audio Codec AAC (Standard für MP4)
+            "-b:a", "192k",        # Audio Bitrate
+            "-pix_fmt", "yuv420p", # Pixel Format für Kompatibilität
+            "-shortest",           # Video so lang wie der kürzeste Stream (Audio)
+            self.final_video_path
+        ]
+        
+        try:
+            # subprocess.run führt den Befehl im Terminal aus
+            subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT, check=True)
+            print(f"✅ VIDEO FERTIG: {self.final_video_path}")
+        except subprocess.CalledProcessError as e:
+            print(f"❌ Video Rendering Fehler: {e}")
+            print("   Stelle sicher, dass FFmpeg installiert ist.")
+
+    # --------------------------------------------------------------------------
+    # SCHRITT 7: METADATEN FÜR UPLOAD
     # --------------------------------------------------------------------------
     def generate_metadata(self):
-        print("📄 6. Erstelle Metadaten für Spotify for Podcasters...")
+        print("📄 7. Erstelle Metadaten...")
 
         title = f"{PODCAST_NAME}: {self.topic} - {SLOGAN}"
-        desc = f"In dieser Folge geht es um {self.topic}. \n\n{self.script_content[:100]}...\n\nGeneriert mit KI."
+        desc = f"""
+        🎙️ {self.topic} - Einfach erklärt in 5 Minuten.
+        
+        Kapitel:
+        00:00 Intro
+        00:30 Hauptteil
+        03:30 Fazit
+
+        #gehirntakko #wissen #shorts #{self.topic.replace(' ', '')}
+        
+        (Teaser):
+        {self.script_content[:150]}...
+        """
 
         meta = {
             "title": title,
             "description": desc,
-            "file_path": self.final_path,
-            "tags": ["Wissen", "Education", self.topic, "Shorts"]
+            "files": {
+                "audio": self.final_audio_path,
+                "video": self.final_video_path
+            },
+            "tags": ["Wissen", "Education", self.topic]
         }
 
         with open(f"{OUTPUT_DIR}/{self.topic.replace(' ', '_')}_meta.json", "w", encoding="utf-8") as f:
             json.dump(meta, f, indent=4, ensure_ascii=False)
 
-        print("   -> Metadaten gespeichert. Bereit für manuellen Upload.")
+        print("   -> Metadaten gespeichert.")
 
 # ==============================================================================
 # MAIN
@@ -308,13 +345,12 @@ if __name__ == "__main__":
     # Pipeline ausführen
     bot.research_trends()
     bot.generate_script()
-    bot.generate_voice() # Hier wird Google Cloud TTS genutzt
-    bot.fetch_music()    # Hier muss ein eigener MP3 Pfad oder gültiger API Key rein
+    bot.generate_voice()
+    bot.fetch_music()
     bot.mix_audio()
+    bot.create_video()
     bot.generate_metadata()
 
     print("\n------------------------------------------------")
-    print("🎉 FERTIG! Die Datei liegt im Ordner 'fertige_episoden'.")
-    print("⚠️  Nächster Schritt: Lade die MP3 und die Texte aus der JSON")
-    print("    bei Spotify for Podcasters hoch.")
+    print("🎉 FERTIG! Ergebnisse in 'fertige_episoden'.")
     print("------------------------------------------------")
