@@ -3,6 +3,7 @@ import time
 import requests
 import json
 import subprocess
+import re
 from pytrends.request import TrendReq
 from google import genai
 from google.genai import errors as genai_errors
@@ -41,6 +42,24 @@ os.makedirs(ASSETS_DIR, exist_ok=True)
 
 # Client Setup
 client = genai.Client(api_key=GEMINI_API_KEY)
+
+
+def _spell_out_abbreviations(text: str) -> str:
+    """Expand 2-3 letter uppercase abbreviations (e.g., KI -> K I) for TTS clarity."""
+    pattern = re.compile(r"(?<!#)\b([A-ZÄÖÜ]{2,3})\b")
+    stoplist = {
+        "DER", "DIE", "DAS", "UND", "DEN", "DEM", "DES", "EIN", "EINE",
+        "VON", "MIT", "AUS", "IM", "IN", "AM", "BEI", "AUF", "FÜR", "AN",
+        "IST", "SIND"
+    }
+
+    def repl(match: re.Match) -> str:
+        word = match.group(1)
+        if word in stoplist:
+            return word
+        return " ".join(list(word))
+
+    return pattern.sub(repl, text)
 
 def pick_available_model(preferences: List[str]) -> str:
     """Wählt das erste verfügbare Modell aus den Präferenzen."""
@@ -125,7 +144,7 @@ class PodcastGenerator:
 
         try:
             response = client.models.generate_content(model=model_name, contents=prompt)
-            self.script_content = response.text
+            self.script_content = _spell_out_abbreviations(response.text)
             with open(f"{TEMP_DIR}/script.txt", "w", encoding="utf-8") as f:
                 f.write(self.script_content)
             print("   -> Skript generiert.")
