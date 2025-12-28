@@ -3,10 +3,12 @@ import time
 import requests
 import json
 from pytrends.request import TrendReq
-import google.generativeai as genai
+from google import genai
+from google.genai import errors as genai_errors
 from google.cloud import texttospeech
 from pydub import AudioSegment
 from dotenv import load_dotenv
+from typing import List
 
 # ==============================================================================
 # KONFIGURATION & API KEYS
@@ -34,8 +36,44 @@ OUTPUT_DIR = "fertige_episoden"
 os.makedirs(TEMP_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-# Setup Clients
-genai.configure(api_key=GEMINI_API_KEY)
+# Setup Clients (uses default endpoint)
+client = genai.Client(api_key=GEMINI_API_KEY)
+
+
+def pick_available_model(preferences: List[str]) -> str:
+    """Pick first preferred model that is available for generateContent."""
+    available = list(client.models.list())
+    blocked_tokens = [
+        "embedding",
+        "tts",
+        "image",
+        "imagen",
+        "veo",
+        "computer-use",
+        "robotics",
+        "aqa",
+        "native-audio",
+    ]
+
+    # First pass: match explicit preferences
+    for model in available:
+        short = model.name.split("/")[-1]
+        if any(tok in short for tok in blocked_tokens):
+            continue
+        for pref in preferences:
+            if short == pref or short.endswith(pref):
+                return model.name  # use full name that API returns
+
+    # Second pass: pick the first non-blocked "gemini" model
+    for model in available:
+        short = model.name.split("/")[-1]
+        if any(tok in short for tok in blocked_tokens):
+            continue
+        if "gemini" in short and "embedding" not in short:
+            return model.name
+
+    names = ", ".join(m.name for m in available)
+    raise RuntimeError(f"Kein verfügbares Textmodell gefunden. Verfügbare Modelle: {names}")
 
 class PodcastGenerator:
     def __init__(self, topic):
@@ -80,8 +118,6 @@ class PodcastGenerator:
     def generate_script(self):
         print(f"✍️ 2. Gemini schreibt das Skript über '{self.topic}'...")
 
-        model = genai.GenerativeModel('gemini-1.5-pro-latest')
-
         prompt = f"""
         Du bist der Host des Podcasts '{PODCAST_NAME}'. Slogan: '{SLOGAN}'.
         Schreibe ein Skript für eine Audio-Aufnahme über das Thema: '{self.topic}'.
@@ -95,8 +131,28 @@ class PodcastGenerator:
         3. Formatierung: Schreibe NUR den gesprochenen Text. Keine Regieanweisungen wie *lacht* oder [Intro Musik].
         4. Länge: Exakt so viel Text für ca. 3-4 Minuten Sprechzeit (ca. 450-500 Wörter).
         """
+        # Wähle ein verfügbares Textmodell (per ListModels abgeglichen)
+        # Prefer aktuell verfügbare Textmodelle (aus ListModels ersichtlich)
+        preferred = [
+            "gemini-2.5-pro",
+            "gemini-2.5-flash",
+            "gemini-3-pro-preview",
+            "gemini-3-flash-preview",
+            "gemini-2.0-flash",
+            "gemini-flash-latest",
+            "gemini-pro-latest",
+        ]
 
-        response = model.generate_content(prompt)
+        model_name = pick_available_model(preferred)
+
+        try:
+            response = client.models.generate_content(
+                model=model_name,
+                contents=prompt,
+            )
+        except genai_errors.ClientError as e:
+            raise RuntimeError("Gemini API Fehler: prüfe GEMINI_API_KEY/Quota/Region") from e
+
         self.script_content = response.text
 
         # Skript speichern für Metadaten
