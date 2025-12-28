@@ -5,10 +5,11 @@ import json
 import subprocess
 import re
 import io
+import mimetypes
 from pytrends.request import TrendReq
 from google import genai
 from google.genai import errors as genai_errors
-from google.cloud import texttospeech
+from google.genai import types
 from pydub import AudioSegment
 from dotenv import load_dotenv
 from typing import List
@@ -212,6 +213,13 @@ class PodcastGenerator:
         4. Formatierung: Reiner Sprechtext. Keine Regieanweisungen ("Lacht", "Musik", "Sound", "Jingle"), keine Labels oder Überschriften wie "Sprechtext" oder "---", keine Trennerlinien, kein Text vor dem eigentlichen gesprochenen Einstieg.
         5. Länge: Ca. 700 Wörter.
         6. Metadaten: Am Ende eine Zeile: "QUELLEN: url1; url2".
+        7. Sprache: Deutsch
+        8. Vermeide Aufzählungen oder nummerierte Listen im gesprochenen Text.
+        9. Nutze Absätze für natürliche Pausen (2 Zeilenumbrüche).
+        10. Vermeide Fachjargon; erkläre komplexe Begriffe einfach.
+        11. Vermeide Wiederholungen und Füllwörter.
+        12. Schreibe so, dass es sich natürlich anhört, wenn es vorgelesen wird.
+        13. Erwähne am Ende das die Zuhörer den Podcast gerene bewerten können und uns folgen sollen (#Gehirntakko).
         """
         
         preferred = ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-pro-latest"]
@@ -252,61 +260,104 @@ class PodcastGenerator:
     # 3. STIMME (Google Cloud TTS)
     # --------------------------------------------------------------------------
     def generate_voice(self):
-        print("🗣️ 3. Generiere Stimme (Natural Studio)...")
-        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = GOOGLE_APPLICATION_CREDENTIALS
+        print("🗣️ 3. Generiere Stimme (Gemini TTS)...")
 
-        client_tts = texttospeech.TextToSpeechClient()
+        model_tts = "gemini-2.5-pro-preview-tts"
+        voice_name = "gacrux"
 
-        # Studio-B ist exzellent. Wir lassen den Pitch natürlich.
-        voice = texttospeech.VoiceSelectionParams(
-            language_code="de-DE",
-            name="de-DE-Studio-B",
-            ssml_gender=texttospeech.SsmlVoiceGender.MALE
-        )
+        def _part_to_segment(part: types.Part, chunk_idx: int, cand_idx: int) -> AudioSegment:
+            if not part.inline_data or not part.inline_data.data:
+                raise RuntimeError(f"Chunk {chunk_idx}: Leere Audio-Teilantwort")
+            data = part.inline_data.data
+            mime = part.inline_data.mime_type or "audio/wav"
+            if not mime.startswith("audio/"):
+                raise RuntimeError(f"Chunk {chunk_idx}: Kein Audio (mime={mime}, cand={cand_idx})")
 
-        # Settings für maximale Natürlichkeit
-        audio_config = texttospeech.AudioConfig(
-            audio_encoding=texttospeech.AudioEncoding.MP3,
-            speaking_rate=1.05, # Ein Hauch schneller wirkt oft energetischer
-            pitch=0.0,          # Natürlich lassen (vorher war +2, das klingt künstlich gestresst)
-            volume_gain_db=1.0  # Minimaler Boost für Präsenz
-        )
+            # Spezialfall: rohes PCM (audio/L16;codec=pcm;rate=24000)
+            if "L16" in mime or "pcm" in mime:
+                try:
+                    return AudioSegment.from_raw(
+                        io.BytesIO(data),
+                        sample_width=2,
+                        frame_rate=24000,
+                        channels=1,
+                    )
+                except Exception as e:
+                    raise RuntimeError(
+                        f"Chunk {chunk_idx}: PCM-Dekodierung fehlgeschlagen (mime={mime}, len={len(data)}, cand={cand_idx}): {e}"
+                    )
+
+            fmt = "wav"
+            if "mp3" in mime:
+                fmt = "mp3"
+            elif "wav" in mime:
+                fmt = "wav"
+            elif "ogg" in mime:
+                fmt = "ogg"
+            else:
+                guess = mimetypes.guess_extension(mime)
+                if guess:
+                    fmt = guess.lstrip(".")
+            try:
+                return AudioSegment.from_file(io.BytesIO(data), format=fmt)
+            except Exception as e:
+                raise RuntimeError(
+                    f"Chunk {chunk_idx}: Audio-Dekodierung fehlgeschlagen (mime={mime}, len={len(data)}, cand={cand_idx}): {e}"
+                )
 
         chunks = _chunk_text(self.script_content)
         segments: List[AudioSegment] = []
-        
+
         print(f"   -> Verarbeite {len(chunks)} Text-Abschnitte...")
-        
+
         for idx, chunk in enumerate(chunks):
-            # Hier passiert die Magie: Text -> SSML mit <p> und <s> und <emphasis>
-            ssml = _to_ssml(chunk)
-            
-            synthesis_input = texttospeech.SynthesisInput(ssml=ssml)
-            
+            content = types.Content(
+                role="user",
+                parts=[types.Part.from_text(text=chunk)]
+            )
+
+            cfg = types.GenerateContentConfig(
+                temperature=1,
+                response_modalities=["audio"],
+                speech_config=types.SpeechConfig(
+                    voice_config=types.VoiceConfig(
+                        prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=voice_name)
+                    )
+                ),
+            )
+
             try:
-                response = client_tts.synthesize_speech(
-                    input=synthesis_input, voice=voice, audio_config=audio_config
+                resp = client.models.generate_content(
+                    model=model_tts,
+                    contents=[content],
+                    config=cfg,
                 )
-                seg = AudioSegment.from_file(io.BytesIO(response.audio_content), format="mp3")
-                segments.append(seg)
+                # Kandidaten auf verwertbare Inline-Audio-Daten prüfen
+                found = False
+                for cand_idx, cand in enumerate(resp.candidates or []):
+                    for part in cand.content.parts or []:
+                        try:
+                            seg = _part_to_segment(part, idx, cand_idx)
+                        except RuntimeError as e:
+                            print(f"   ⚠️ {e}")
+                            continue
+                        segments.append(seg)
+                        found = True
+                        break
+                    if found:
+                        break
+                if not found:
+                    raise RuntimeError(f"Keine Audio-Daten im Response (Chunk {idx})")
             except Exception as e:
                 print(f"   ❌ Fehler bei Chunk {idx}: {e}")
-                # Wir versuchen es ohne SSML als Fallback, falls Gemini komische Zeichen generiert hat
-                print("      -> Versuche Fallback (Plain Text)...")
-                synthesis_input_plain = texttospeech.SynthesisInput(text=chunk)
-                response = client_tts.synthesize_speech(
-                    input=synthesis_input_plain, voice=voice, audio_config=audio_config
-                )
-                seg = AudioSegment.from_file(io.BytesIO(response.audio_content), format="mp3")
-                segments.append(seg)
+                raise
 
         if not segments:
             raise RuntimeError("TTS lieferte keine Segmente.")
 
         final_voice = segments[0]
         for seg in segments[1:]:
-            # Kleiner Crossfade zwischen Chunks verhindert harte Cuts
-            final_voice = final_voice.append(seg, crossfade=100) 
+            final_voice = final_voice.append(seg, crossfade=100)
 
         self.audio_voice_path = f"{TEMP_DIR}/voice_raw.mp3"
         final_voice.export(self.audio_voice_path, format="mp3")
