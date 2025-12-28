@@ -72,7 +72,6 @@ mkdir -p fertige_episoden
 # 5. Abschluss und API Key Check
 echo -e "\n${GREEN}--- Installation abgeschlossen! ---${NC}"
 echo -e "${YELLOW}Erinnerung: Bitte stelle sicher, dass du folgende Schritte erledigt hast:${NC}"
-echo "1. API Key für Gemini in 'podcast_generator.py' eintragen."
-echo "2. API Key für Pixabay in 'podcast_generator.py' eintragen."
-echo "3. Die Datei 'google_cloud_credentials.json' muss im selben Ordner liegen."
+echo "1. .env mit GEMINI_API_KEY, PIXABAY_API_KEY, GOOGLE_APPLICATION_CREDENTIALS füllen."
+echo "2. Die Datei 'google_cloud_credentials.json' muss im selben Ordner liegen oder der Pfad im .env gesetzt sein."
 echo -e "\nDu kannst das Programm nun starten mit: ${GREEN}python3 podcast_generator.py${NC}"
