@@ -4,3 +4,4 @@ pytrends
 pydub
 pyaudioop
 requests
+python-dotenv

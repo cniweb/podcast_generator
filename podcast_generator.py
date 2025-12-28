@@ -6,14 +6,23 @@ from pytrends.request import TrendReq
 import google.generativeai as genai
 from google.cloud import texttospeech
 from pydub import AudioSegment
+from dotenv import load_dotenv
 
 # ==============================================================================
 # KONFIGURATION & API KEYS
 # ==============================================================================
-# Trage hier deine API-Keys ein
-GEMINI_API_KEY = "DEIN_GEMINI_API_KEY"
-GOOGLE_APPLICATION_CREDENTIALS = "oogle_cloud_credentials.json" # Für TTS
-PIXABAY_API_KEY = "DEIN_PIXABAY_API_KEY"
+load_dotenv()
+
+def _require_env(var_name):
+    value = os.getenv(var_name)
+    if not value:
+        raise RuntimeError(f"Environment variable {var_name} is required but not set.")
+    return value
+
+# Trage die Secrets in der .env Datei ein
+GEMINI_API_KEY = _require_env("GEMINI_API_KEY")
+GOOGLE_APPLICATION_CREDENTIALS = _require_env("GOOGLE_APPLICATION_CREDENTIALS")
+PIXABAY_API_KEY = _require_env("PIXABAY_API_KEY")
 
 # Podcast Einstellungen
 PODCAST_NAME = "Gehirntakko"
