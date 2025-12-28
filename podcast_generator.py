@@ -2,7 +2,7 @@ import os
 import time
 import requests
 import json
-import subprocess  # Wichtig für FFmpeg Aufrufe
+import subprocess
 from pytrends.request import TrendReq
 from google import genai
 from google.genai import errors as genai_errors
@@ -22,61 +22,53 @@ def _require_env(var_name):
         raise RuntimeError(f"Environment variable {var_name} is required but not set.")
     return value
 
-# Trage die Secrets in der .env Datei ein
+# Secrets aus der .env Datei
 GEMINI_API_KEY = _require_env("GEMINI_API_KEY")
 GOOGLE_APPLICATION_CREDENTIALS = _require_env("GOOGLE_APPLICATION_CREDENTIALS")
-PIXABAY_API_KEY = _require_env("PIXABAY_API_KEY")
+FREESOUND_API_KEY = _require_env("FREESOUND_API_KEY")
 
 # Podcast Einstellungen
 PODCAST_NAME = "Gehirntakko"
 SLOGAN = "Wissen in unter 5 Minuten"
 TEMP_DIR = "temp_assets"
 OUTPUT_DIR = "fertige_episoden"
-ASSETS_DIR = "assets"  # Ordner für Cover-Bilder etc.
+ASSETS_DIR = "assets"
 
-# Setup Directories
+# Ordner erstellen
 os.makedirs(TEMP_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 os.makedirs(ASSETS_DIR, exist_ok=True)
 
-# Setup Clients (uses default endpoint)
+# Client Setup
 client = genai.Client(api_key=GEMINI_API_KEY)
 
-
 def pick_available_model(preferences: List[str]) -> str:
-    """Pick first preferred model that is available for generateContent."""
-    available = list(client.models.list())
-    blocked_tokens = [
-        "embedding",
-        "tts",
-        "image",
-        "imagen",
-        "veo",
-        "computer-use",
-        "robotics",
-        "aqa",
-        "native-audio",
-    ]
+    """Wählt das erste verfügbare Modell aus den Präferenzen."""
+    try:
+        available = list(client.models.list())
+    except Exception as e:
+        # Fallback, falls list() fehlschlägt (z.B. wegen Permissions)
+        print(f"   ⚠️ Konnte Modelle nicht listen ({e}). Versuche Standard: gemini-2.0-flash")
+        return "gemini-2.0-flash"
 
-    # First pass: match explicit preferences
+    blocked_tokens = ["embedding", "tts", "image", "imagen", "veo", "computer-use", "robotics", "aqa", "native-audio"]
+
+    # 1. Pass: Exakte Übereinstimmung
     for model in available:
         short = model.name.split("/")[-1]
-        if any(tok in short for tok in blocked_tokens):
-            continue
+        if any(tok in short for tok in blocked_tokens): continue
         for pref in preferences:
             if short == pref or short.endswith(pref):
-                return model.name  # use full name that API returns
+                return model.name
 
-    # Second pass: pick the first non-blocked "gemini" model
+    # 2. Pass: Irgendein Gemini Modell
     for model in available:
         short = model.name.split("/")[-1]
-        if any(tok in short for tok in blocked_tokens):
-            continue
-        if "gemini" in short and "embedding" not in short:
+        if any(tok in short for tok in blocked_tokens): continue
+        if "gemini" in short:
             return model.name
 
-    names = ", ".join(m.name for m in available)
-    raise RuntimeError(f"Kein verfügbares Textmodell gefunden. Verfügbare Modelle: {names}")
+    return "gemini-2.0-flash" # Harter Fallback
 
 class PodcastGenerator:
     def __init__(self, topic):
@@ -84,40 +76,34 @@ class PodcastGenerator:
         self.script_content = ""
         self.audio_voice_path = ""
         self.music_path = ""
-        self.final_audio_path = ""  # Umbenannt für Klarheit
-        self.final_video_path = ""  # Neu für Video
+        self.final_audio_path = ""
+        self.final_video_path = ""
         print(f"🚀 Starte Produktion für Thema: {topic}")
 
     # --------------------------------------------------------------------------
-    # SCHRITT 1: TREND RECHERCHE (Google Trends)
+    # 1. TRENDS
     # --------------------------------------------------------------------------
     def research_trends(self):
         print("🔍 1. Analysiere Google Trends...")
         try:
             pytrends = TrendReq(hl='de-DE', tz=360)
-            # Suche nach verwandten Queries zum Thema
             pytrends.build_payload([self.topic], cat=0, timeframe='now 7-d', geo='DE')
-            related_queries = pytrends.related_queries()
-
-            top_query = self.topic # Fallback
-
-            if self.topic in related_queries and related_queries[self.topic]['top'] is not None:
-                # Nimm den Top-Begriff, der gerade trendet
-                df = related_queries[self.topic]['top']
+            related = pytrends.related_queries()
+            
+            if self.topic in related and related[self.topic]['top'] is not None:
+                df = related[self.topic]['top']
                 if not df.empty:
                     top_query = df.iloc[0]['query']
-                    print(f"   -> Trend gefunden: '{top_query}' ist spezifischer als '{self.topic}'")
+                    print(f"   -> Trend gefunden: '{top_query}'")
                     self.topic = top_query
             else:
-                print("   -> Keine spezifischen Trends gefunden, nutze Ursprungsthema.")
-
+                print("   -> Keine spezifischen Trends, nutze Ursprungsthema.")
         except Exception as e:
-            print(f"   ⚠️ Trend-API Fehler (nutze Fallback): {e}")
-
+            print(f"   ⚠️ Trend-Fehler (nutze Fallback): {e}")
         return self.topic
 
     # --------------------------------------------------------------------------
-    # SCHRITT 2: SKRIPT GENERIERUNG (Gemini Pro)
+    # 2. SKRIPT (Gemini)
     # --------------------------------------------------------------------------
     def generate_script(self):
         print(f"✍️ 2. Gemini schreibt das Skript über '{self.topic}'...")
@@ -125,59 +111,38 @@ class PodcastGenerator:
         prompt = f"""
         Du bist der Host des Podcasts '{PODCAST_NAME}'. Slogan: '{SLOGAN}'.
         Schreibe ein Skript für eine Audio-Aufnahme über das Thema: '{self.topic}'.
-
+        
         Vorgaben:
         1. Sprache: Deutsch, locker, duzend, energetisch.
-        2. Struktur:
-           - Kurzes Intro mit Slogan.
-           - Hauptteil: Erkläre das Thema einfach (ELIF) und nenne 3 spannende Fakten.
-           - Outro: Verabschiedung und Call-to-Action.
-        3. Formatierung: Schreibe NUR den gesprochenen Text. Keine Regieanweisungen.
-        4. Länge: Exakt so viel Text für ca. 3-4 Minuten Sprechzeit (ca. 450-500 Wörter).
-        5. Verwende am Ende genau den Hashtag #Gehirntakko, keine weiteren Hashtags.
+        2. Struktur: Intro (mit Slogan), Hauptteil (3 Fakten, ELIF), Outro (Call-to-Action).
+        3. Formatierung: NUR gesprochener Text. Keine Regieanweisungen.
+        4. Länge: Ca. 400-500 Wörter.
+        5. Ende mit Hashtag #Gehirntakko.
         """
-        # Wähle ein verfügbares Textmodell (per ListModels abgeglichen)
-        preferred = [
-            "gemini-2.5-pro",
-            "gemini-2.5-flash",
-            "gemini-3-pro-preview",
-            "gemini-3-flash-preview",
-            "gemini-2.0-flash",
-            "gemini-flash-latest",
-            "gemini-pro-latest",
-        ]
-
+        
+        preferred = ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-pro-latest"]
         model_name = pick_available_model(preferred)
 
         try:
-            response = client.models.generate_content(
-                model=model_name,
-                contents=prompt,
-            )
-        except genai_errors.ClientError as e:
-            raise RuntimeError("Gemini API Fehler: prüfe GEMINI_API_KEY/Quota/Region") from e
-
-        self.script_content = response.text
-
-        # Skript speichern für Metadaten
-        with open(f"{TEMP_DIR}/script.txt", "w", encoding="utf-8") as f:
-            f.write(self.script_content)
-
-        print("   -> Skript erfolgreich generiert.")
+            response = client.models.generate_content(model=model_name, contents=prompt)
+            self.script_content = response.text
+            with open(f"{TEMP_DIR}/script.txt", "w", encoding="utf-8") as f:
+                f.write(self.script_content)
+            print("   -> Skript generiert.")
+        except Exception as e:
+            raise RuntimeError(f"Gemini API Fehler: {e}")
 
     # --------------------------------------------------------------------------
-    # SCHRITT 3: SPRACH GENERIERUNG (Google Cloud TTS)
+    # 3. STIMME (Google Cloud TTS)
     # --------------------------------------------------------------------------
     def generate_voice(self):
-        print("🗣️ 3. Generiere Stimme mit Google Neural2 (High Quality)...")
-
-        # Setze Umgebungsvariable für Google Auth (falls nicht schon durch load_dotenv gesetzt)
+        print("🗣️ 3. Generiere Stimme (Studio Quality)...")
         os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = GOOGLE_APPLICATION_CREDENTIALS
 
-        client = texttospeech.TextToSpeechClient()
+        client_tts = texttospeech.TextToSpeechClient()
         synthesis_input = texttospeech.SynthesisInput(text=self.script_content)
 
-        # Stimme konfigurieren (Männlich, Deutsch, Neural2-B ist sehr natürlich)
+        # Deine Wahl: Studio-B (Männlich, sehr natürlich)
         voice = texttospeech.VoiceSelectionParams(
             language_code="de-DE",
             name="de-DE-Studio-B",
@@ -186,180 +151,161 @@ class PodcastGenerator:
 
         audio_config = texttospeech.AudioConfig(
             audio_encoding=texttospeech.AudioEncoding.MP3,
-            speaking_rate=1.05, # Ein bisschen schneller wirkt dynamischer
-            pitch=0.0
+            speaking_rate=1.05
         )
 
-        response = client.synthesize_speech(
+        response = client_tts.synthesize_speech(
             input=synthesis_input, voice=voice, audio_config=audio_config
         )
 
         self.audio_voice_path = f"{TEMP_DIR}/voice_raw.mp3"
         with open(self.audio_voice_path, "wb") as out:
             out.write(response.audio_content)
-
         print("   -> Sprachdatei erstellt.")
 
     # --------------------------------------------------------------------------
-    # SCHRITT 4: MUSIK BESCHAFFUNG (Pixabay API)
+    # 4. MUSIK (Freesound.org) - GEMERGT
     # --------------------------------------------------------------------------
     def fetch_music(self):
-        print("🎵 4. Suche Hintergrundmusik auf Pixabay...")
-
-        # Fallback auf lokale Datei im assets Ordner bevorzugt
-        local_music = os.path.join(ASSETS_DIR, "background_loop.mp3")
+        print("🎵 4. Suche Hintergrundmusik (Freesound)...")
         
+        # 1. Prüfe auf lokale Datei (Priorität)
+        local_music = os.path.join(ASSETS_DIR, "background_loop.mp3")
         if os.path.exists(local_music):
             self.music_path = local_music
-            print("   -> Lokale Musikdatei 'background_loop.mp3' gefunden.")
+            print("   -> Lokale Datei 'background_loop.mp3' gefunden.")
             return
 
-        # Fallback API Logic (vereinfacht): versuche mehrere Queries, sonst Dummy
+        # 2. Suche via Freesound API
         try:
-            queries = [
-                f"{self.topic} instrumental",
-                f"{self.topic} background",
-                "lofi study beat",
-                "ambient background",
-                "cinematic soft",
-            ]
+            url = "https://freesound.org/apiv2/search/text/"
+            params = {
+                "query": "lofi study loop",
+                "token": FREESOUND_API_KEY,
+                "sort": "rating_desc",
+                "filter": "duration:[60 TO 300]"
+            }
+            r = requests.get(url, params=params)
+            data = r.json()
+            
+            if data.get('results'):
+                # Hole Preview URL des besten Treffers
+                track = data['results'][0]
+                # Detail-Call um den High-Quality Preview Link zu bekommen (manchmal nötig)
+                # Aber oft reicht der structure-call. Wir nehmen hier an, wir müssen die ID nutzen
+                # oder wir nutzen das 'previews' Feld wenn verfügbar.
+                # Freesound search result hat nicht immer previews -> wir nutzen den ID call für details
+                track_id = track['id']
+                detail_url = f"https://freesound.org/apiv2/sounds/{track_id}/"
+                d_r = requests.get(detail_url, params={"token": FREESOUND_API_KEY})
+                track_details = d_r.json()
+                
+                preview_url = track_details['previews']['preview-hq-mp3']
+                print(f"   -> Lade herunter: {track['name']}")
+                
+                mp3_r = requests.get(preview_url)
+                self.music_path = f"{TEMP_DIR}/music_download.mp3"
+                with open(self.music_path, "wb") as f:
+                    f.write(mp3_r.content)
+                return
 
-            for q in queries:
-                music_url = f"https://pixabay.com/api/?key={PIXABAY_API_KEY}&q={q}&audio_type=music"
-                r = requests.get(music_url, timeout=10)
-                data = r.json() if r.ok else {}
-                hits = data.get("hits") or []
-                if hits:
-                    page_url = hits[0].get("pageURL") or hits[0].get("previewURL") or hits[0].get("videos", {}).get("small", {}).get("url")
-                    # Hier müsste real der Download des MP3 erfolgen; wir nutzen Dummy, wenn keine direkte URL verfügbar ist
-                    print(f"   -> Treffer für '{q}' gefunden (Seite: {page_url}). Nutze Dummy mangels Direktlink.")
-                    self.music_path = f"{TEMP_DIR}/music_dummy.mp3"
-                    AudioSegment.silent(duration=10000).export(self.music_path, format="mp3")
-                    return
-
-            print("   -> Keine passenden Treffer, erzeuge Dummy (Stille)...")
+            print("   -> Nichts gefunden. Nutze Stille.")
             self.music_path = f"{TEMP_DIR}/silence.mp3"
             AudioSegment.silent(duration=10000).export(self.music_path, format="mp3")
 
         except Exception as e:
-            print(f"   ⚠️ Musik Fehler: {e}")
+            print(f"   ⚠️ Musik-Fehler: {e}. Nutze Stille.")
             self.music_path = None
 
     # --------------------------------------------------------------------------
-    # SCHRITT 5: AUDIO MIXING (Pydub + FFmpeg)
+    # 5. MIXING
     # --------------------------------------------------------------------------
     def mix_audio(self):
-        print("🎛️ 5. Mische Stimme und Musik...")
-
+        print("🎛️ 5. Mixing...")
         voice = AudioSegment.from_mp3(self.audio_voice_path)
 
         if self.music_path and os.path.exists(self.music_path):
             music = AudioSegment.from_mp3(self.music_path)
-            # Musik leiser machen (-18dB)
-            music = music - 18
+            music = music - 18 # Hintergrundmusik leiser
             
             # Loop
             while len(music) < len(voice) + 5000:
                 music += music
             music = music[:len(voice) + 5000]
             music = music.fade_out(3000)
-            
-            final_audio = music.overlay(voice, position=500)
+            final = music.overlay(voice, position=500)
         else:
-            final_audio = voice
+            final = voice
 
-        # Export
         filename = f"{self.topic.replace(' ', '_')}.mp3"
         self.final_audio_path = os.path.join(OUTPUT_DIR, filename)
-
-        final_audio.export(self.final_audio_path, format="mp3", bitrate="192k")
-        print(f"   -> AUDIO EPISODE FERTIG: {self.final_audio_path}")
+        final.export(self.final_audio_path, format="mp3", bitrate="192k")
+        print(f"   -> Audio fertig: {self.final_audio_path}")
 
     # --------------------------------------------------------------------------
-    # SCHRITT 6: VIDEO GENERIERUNG (FFmpeg)
+    # 6. VIDEO (FFmpeg) - GEMERGT (Support für PNG & JPG)
     # --------------------------------------------------------------------------
     def create_video(self):
-        print("🎬 6. Erstelle Video für YouTube (MP4)...")
+        print("🎬 6. Erstelle YouTube-Video...")
         
-        # Prüfen ob Cover Bild existiert
-        cover_image = os.path.join(ASSETS_DIR, "cover.png")
+        # Flexibler Check: PNG oder JPG?
+        cover_png = os.path.join(ASSETS_DIR, "cover.png")
+        cover_jpg = os.path.join(ASSETS_DIR, "cover.jpg")
         
-        if not os.path.exists(cover_image):
-            print(f"   ⚠️ Kein 'cover.png' im Ordner '{ASSETS_DIR}' gefunden. Überspringe Video.")
+        if os.path.exists(cover_png):
+            cover_image = cover_png
+        elif os.path.exists(cover_jpg):
+            cover_image = cover_jpg
+        else:
+            print(f"   ⚠️ Kein Cover gefunden (weder .png noch .jpg in {ASSETS_DIR}).")
             return
 
         video_filename = f"{self.topic.replace(' ', '_')}_video.mp4"
         self.final_video_path = os.path.join(OUTPUT_DIR, video_filename)
 
-        # FFmpeg Befehl: Loop Bild + Audio = Video
         cmd = [
-            "ffmpeg", "-y", # Überschreiben erzwingen
-            "-loop", "1",   # Bild loopen
+            "ffmpeg", "-y",
+            "-loop", "1",
             "-i", cover_image,
             "-i", self.final_audio_path,
-            "-c:v", "libx264",     # Video Codec H.264
-            "-tune", "stillimage", # Optimierung für Standbild
-            "-c:a", "aac",         # Audio Codec AAC (Standard für MP4)
-            "-b:a", "192k",        # Audio Bitrate
-            "-pix_fmt", "yuv420p", # Pixel Format für Kompatibilität
-            "-shortest",           # Video so lang wie der kürzeste Stream (Audio)
+            "-c:v", "libx264", "-tune", "stillimage",
+            "-c:a", "aac", "-b:a", "192k",
+            "-pix_fmt", "yuv420p",
+            "-shortest",
             self.final_video_path
         ]
         
         try:
-            # subprocess.run führt den Befehl im Terminal aus
             subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT, check=True)
-            print(f"   -> VIDEO FERTIG: {self.final_video_path}")
-        except subprocess.CalledProcessError as e:
-            print(f"❌ Video Rendering Fehler: {e}")
-            print("   Stelle sicher, dass FFmpeg installiert ist.")
+            print(f"   -> Video fertig: {self.final_video_path}")
+        except Exception as e:
+            print(f"   ❌ FFmpeg Fehler: {e}")
 
     # --------------------------------------------------------------------------
-    # SCHRITT 7: METADATEN FÜR UPLOAD
+    # 7. METADATEN
     # --------------------------------------------------------------------------
     def generate_metadata(self):
-        print("📄 7. Erstelle Metadaten...")
-
-        title = f"{PODCAST_NAME}: {self.topic} - {SLOGAN}"
-        desc = f"""
-        🎙️ {self.topic} - Einfach erklärt in 5 Minuten.
-        
-        Kapitel:
-        00:00 Intro
-        00:30 Hauptteil
-        03:30 Fazit
-
-        #gehirntakko #wissen #shorts #{self.topic.replace(' ', '')}
-        
-        (Teaser):
-        {self.script_content[:150]}...
-        """
-
+        print("📄 7. Metadaten...")
         meta = {
-            "title": title,
-            "description": desc,
+            "title": f"{PODCAST_NAME}: {self.topic}",
+            "description": f"{SLOGAN}\n\n{self.script_content[:150]}...",
             "files": {
                 "audio": self.final_audio_path,
                 "video": self.final_video_path
-            },
-            "tags": ["Wissen", "Education", self.topic]
+            }
         }
-
         with open(f"{OUTPUT_DIR}/{self.topic.replace(' ', '_')}_meta.json", "w", encoding="utf-8") as f:
-            json.dump(meta, f, indent=4, ensure_ascii=False)
-
-        print("   -> Metadaten gespeichert.")
+            json.dump(meta, f, indent=4)
+        print("   -> Fertig.")
 
 # ==============================================================================
 # MAIN
 # ==============================================================================
 if __name__ == "__main__":
     print(f"--- {PODCAST_NAME.upper()} AUTOMATISIERUNG ---")
-    user_topic = input("Gib ein grobes Thema ein (z.B. 'Schwarze Löcher'): ")
-
-    bot = PodcastGenerator(user_topic)
-
-    # Pipeline ausführen
+    topic = input("Thema: ")
+    bot = PodcastGenerator(topic)
+    
     bot.research_trends()
     bot.generate_script()
     bot.generate_voice()
@@ -367,7 +313,5 @@ if __name__ == "__main__":
     bot.mix_audio()
     bot.create_video()
     bot.generate_metadata()
-
-    print("\n------------------------------------------------")
-    print("🎉 FERTIG! Ergebnisse in 'fertige_episoden'.")
-    print("------------------------------------------------")
+    
+    print("\n✅ ALLES ERLEDIGT!")

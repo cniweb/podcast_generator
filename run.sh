@@ -40,7 +40,7 @@ set -a
 source "$ENV_FILE"
 set +a
 
-for var in GEMINI_API_KEY PIXABAY_API_KEY GOOGLE_APPLICATION_CREDENTIALS; do
+for var in GEMINI_API_KEY FREESOUND_API_KEY GOOGLE_APPLICATION_CREDENTIALS; do
     value=${!var}
     if [ -z "$value" ] || [[ "$value" == your_* ]]; then
         echo -e "${RED}Fehler: $var ist nicht gesetzt oder noch Platzhalter.${NC}"
