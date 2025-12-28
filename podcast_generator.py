@@ -139,7 +139,7 @@ class PodcastGenerator:
         3. Formatierung: NUR gesprochener Text. Keine Regieanweisungen.
         4. Länge: Ca. 400-500 Wörter.
         5. Ende mit Hashtag #Gehirntakko.
-        6. Am Textende ergänze eine Zeile im Format: "QUELLEN: Quelle1 (Jahr); Quelle2 (Jahr); ..." (max. 3 Quellen, keine URLs).
+        6. Am Textende ergänze eine Zeile im Format: "QUELLEN: Quelle1 (Jahr); Quelle2 (Jahr); ..." (max. 3 Quellen, keine URLs). Diese Zeile ist NUR für Metadaten, wird nicht gesprochen.
         """
         
         preferred = ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-pro-latest"]
@@ -148,21 +148,29 @@ class PodcastGenerator:
         try:
             response = client.models.generate_content(model=model_name, contents=prompt)
             raw_text = response.text
-            self.script_content = _spell_out_abbreviations(raw_text)
-            self.transcript_path = f"{TEMP_DIR}/script.txt"
-            with open(self.transcript_path, "w", encoding="utf-8") as f:
-                f.write(self.script_content)
-            # Quellen aus expliziter QUELLEN-Zeile parsen
+
+            # Quellen-Zeile abtrennen, damit sie nicht gesprochen wird
             sources_line = ""
+            kept_lines = []
             for line in raw_text.splitlines():
                 if line.strip().upper().startswith("QUELLEN:"):
                     sources_line = line
-                    break
+                else:
+                    kept_lines.append(line)
+
             if sources_line:
                 parts = sources_line.split(":", 1)[-1]
                 self.sources = [s.strip() for s in parts.split(";") if s.strip()]
             else:
                 self.sources = []
+
+            cleaned_text = "\n".join(kept_lines)
+            self.script_content = _spell_out_abbreviations(cleaned_text)
+
+            self.transcript_path = f"{TEMP_DIR}/script.txt"
+            with open(self.transcript_path, "w", encoding="utf-8") as f:
+                f.write(self.script_content)
+
             print("   -> Skript generiert.")
         except Exception as e:
             raise RuntimeError(f"Gemini API Fehler: {e}")
