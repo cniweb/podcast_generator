@@ -65,13 +65,9 @@ else
     exit 1
 fi
 
-# 4. Ordnerstruktur erstellen (Sicherheitshalber)
-mkdir -p temp_assets
-mkdir -p fertige_episoden
-
-# 5. Abschluss und API Key Check
+# 4. Abschluss und API Key Check
 echo -e "\n${GREEN}--- Installation abgeschlossen! ---${NC}"
 echo -e "${YELLOW}Erinnerung: Bitte stelle sicher, dass du folgende Schritte erledigt hast:${NC}"
-echo "1. .env mit GEMINI_API_KEY, PIXABAY_API_KEY, GOOGLE_APPLICATION_CREDENTIALS füllen."
+echo "1. .env mit GEMINI_API_KEY, FREESOUND_API_KEY, GOOGLE_APPLICATION_CREDENTIALS füllen."
 echo "2. Die Datei 'google_cloud_credentials.json' muss im selben Ordner liegen oder der Pfad im .env gesetzt sein."
 echo -e "\nDu kannst das Programm nun starten mit: ${GREEN}python3 podcast_generator.py${NC}"
