@@ -2,4 +2,5 @@ google-generativeai
 google-cloud-texttospeech
 pytrends
 pydub
+pyaudioop
 requests
