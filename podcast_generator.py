@@ -134,6 +134,7 @@ class PodcastGenerator:
            - Outro: Verabschiedung und Call-to-Action.
         3. Formatierung: Schreibe NUR den gesprochenen Text. Keine Regieanweisungen.
         4. Länge: Exakt so viel Text für ca. 3-4 Minuten Sprechzeit (ca. 450-500 Wörter).
+        5. Verwende am Ende genau den Hashtag #Gehirntakko, keine weiteren Hashtags.
         """
         # Wähle ein verfügbares Textmodell (per ListModels abgeglichen)
         preferred = [
