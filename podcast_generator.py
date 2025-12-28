@@ -31,7 +31,7 @@ FREESOUND_API_KEY = _require_env("FREESOUND_API_KEY")
 PODCAST_NAME = "Gehirntakko"
 SLOGAN = "Wissen in unter 5 Minuten"
 TEMP_DIR = "temp_assets"
-OUTPUT_DIR = "fertige_episoden"
+OUTPUT_DIR = "finished_episodes"
 ASSETS_DIR = "assets"
 
 # Ordner erstellen

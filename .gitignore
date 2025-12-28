@@ -211,7 +211,7 @@ google_cloud_credentials.json
 
 # Temporary assets
 temp_assets/
-fertige_episoden/
+finished_episodes/
 
 # macOS system files
 .DS_Store

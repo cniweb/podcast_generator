@@ -64,10 +64,10 @@ then
 fi
 
 # 3c. Ordner leeren
-mkdir -p temp_assets fertige_episoden
-echo -e "${YELLOW}Leere temp_assets und fertige_episoden...${NC}"
+mkdir -p temp_assets finished_episodes
+echo -e "${YELLOW}Leere temp_assets und finished_episodes...${NC}"
 find temp_assets -mindepth 1 -delete
-find fertige_episoden -mindepth 1 -delete
+find finished_episodes -mindepth 1 -delete
 
 # 4. VIRTUAL ENVIRONMENT (.venv) SETUP
 if [ ! -d ".venv" ]; then
