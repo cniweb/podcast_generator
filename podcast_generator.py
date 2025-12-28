@@ -158,12 +158,12 @@ class PodcastGenerator:
         Schreibe ein Skript für eine Audio-Aufnahme über das Thema: '{self.topic}'.
         
         Vorgaben:
-        1. Sprache: Deutsch, locker, duzend, energetisch, klingt wie ein 20-jähriger Host, kurze Sätze, direkte Fragen, ohne Slang-Overkill.
+        1. Sprache: Deutsch, locker, duzend, ichform, energetisch, klingt wie ein 30-jähriger Host, kurze Sätze, direkte Fragen, ohne Slang-Overkill.
         2. Struktur: Intro (mit Slogan), Hauptteil mit 3 knackigen Fakten (je 2-3 Sätze), kurzes Outro als freundlicher Abschluss ohne Call-to-Action.
         3. Formatierung: NUR gesprochener Text. Keine Regieanweisungen.
-        4. Länge: Ca. 400-500 Wörter.
+        4. Länge: Ca. 600-700 Wörter.
         5. Ende mit Hashtag #Gehirntakko.
-        6. Am Textende ergänze eine Zeile im Format: "QUELLEN: Quelle1 (Jahr); Quelle2 (Jahr); ..." (max. 3 Quellen, keine URLs). Diese Zeile ist NUR für Metadaten, wird nicht gesprochen.
+        6. Am Textende ergänze eine Zeile im Format: "QUELLEN: Quelle1 (Jahr); Quelle2 (Jahr); ..." (max. 3 Quellen, inkl. URLs). Diese Zeile ist NUR für Metadaten, wird nicht gesprochen.
         """
         
         preferred = ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-pro-latest"]
