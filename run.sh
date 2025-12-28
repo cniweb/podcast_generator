@@ -63,6 +63,12 @@ then
     echo -e "${YELLOW}Hinweis: 'audioop' fehlt in ${PYTHON_BIN}. Wir installieren 'audioop-lts' über requirements.txt.${NC}"
 fi
 
+# 3c. Ordner leeren
+mkdir -p temp_assets fertige_episoden
+echo -e "${YELLOW}Leere temp_assets und fertige_episoden...${NC}"
+find temp_assets -mindepth 1 -delete
+find fertige_episoden -mindepth 1 -delete
+
 # 4. VIRTUAL ENVIRONMENT (.venv) SETUP
 if [ ! -d ".venv" ]; then
     echo -e "${YELLOW}Erstelle virtuelles Python-Environment (.venv)...${NC}"
