@@ -339,6 +339,14 @@ class PodcastGenerator:
     # --------------------------------------------------------------------------
     def generate_metadata(self):
         print("📄 7. Metadaten...")
+        transcription_output_path = os.path.join(
+            OUTPUT_DIR, f"{self.topic.replace(' ', '_')}_transcription.txt"
+        )
+
+        # Persist a copy of the script next to the final assets
+        with open(transcription_output_path, "w", encoding="utf-8") as f:
+            f.write(self.script_content)
+
         meta = {
             "title": f"{PODCAST_NAME}: {self.topic}",
             "description": f"{SLOGAN}\n\n{self.script_content[:150]}...",
@@ -348,7 +356,7 @@ class PodcastGenerator:
             },
             "sources": self.sources,
             "transcript": self.script_content,
-            "transcript_file": self.transcript_path
+            "transcript_file": transcription_output_path
         }
         with open(f"{OUTPUT_DIR}/{self.topic.replace(' ', '_')}_meta.json", "w", encoding="utf-8") as f:
             json.dump(meta, f, indent=4)
