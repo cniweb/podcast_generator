@@ -166,7 +166,7 @@ class PodcastGenerator:
            - Kurzes, warmes Outro.
         4. Formatierung: Reiner Sprechtext. Keine Regieanweisungen oder Bühnenanweisungen (kein "Lacht", "Musik", "Sound", "Jingle", "Atmos", "Beat", "faded" etc.), keine Labels oder Überschriften wie "Sprechtext" oder "---", keine Trennerlinien, kein Text vor dem eigentlichen gesprochenen Einstieg.
         5. Länge: Ca. 700 Wörter.
-        6. Metadaten: Am Ende eine Zeile: "QUELLEN: url1; url2".
+        6. Metadaten: Am Ende eine Zeile: "QUELLEN: url1; url2; url3".
         7. Sprache: Deutsch
         8. Vermeide Aufzählungen oder nummerierte Listen im gesprochenen Text.
         9. Nutze Absätze für natürliche Pausen (2 Zeilenumbrüche).
