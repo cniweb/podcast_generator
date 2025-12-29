@@ -107,6 +107,23 @@ class PodcastGenerator:
         self.transcript_path = ""
         print(f"🚀 Starte Produktion für Thema: '{topic}'")
 
+    def _translate_topic_to_en(self, topic: str) -> str:
+        prompt = (
+            "Translate the following topic into concise English keywords for a music search. "
+            "Return a short phrase (max 4 words) without quotes or explanations: "
+            f"{topic}"
+        )
+        try:
+            resp = client.models.generate_content(
+                model="gemini-2.0-flash",
+                contents=prompt,
+            )
+            translated = (resp.text or "").strip().replace("\n", " ")
+            return translated or topic
+        except Exception as exc:
+            print(f"   ⚠️ Übersetzung fehlgeschlagen, nutze Original: {exc}")
+            return topic
+
     # --------------------------------------------------------------------------
     # 1. TRENDS
     # --------------------------------------------------------------------------
@@ -194,10 +211,68 @@ class PodcastGenerator:
             raise RuntimeError(f"Gemini API Fehler: {e}")
 
     # --------------------------------------------------------------------------
-    # 3. STIMME (Google Cloud TTS)
+    # 3. MUSIK (Freesound.org)
+    # --------------------------------------------------------------------------
+    def fetch_music(self):
+        print("🎵 3. Suche Hintergrundmusik (Freesound)...")
+        local_music = os.path.join(ASSETS_DIR, "background_loop.mp3")
+        if os.path.exists(local_music):
+            self.music_path = local_music
+            print("   -> Lokale Datei 'background_loop.mp3' gefunden.")
+            return
+
+        search_topic = self._translate_topic_to_en(self.topic)
+        if search_topic != self.topic:
+            print(f"   -> Übersetztes Suchthema: '{search_topic}'")
+
+        try:
+            def _search_and_download(query: str) -> bool:
+                url = "https://freesound.org/apiv2/search/text/"
+                params = {
+                    "query": query,
+                    "token": FREESOUND_API_KEY,
+                    "sort": "rating_desc",
+                    "filter": "duration:[60 TO 300]"
+                }
+                resp = requests.get(url, params=params)
+                data = resp.json()
+                if data.get("results"):
+                    track = data["results"][0]
+                    track_id = track["id"]
+                    detail_url = f"https://freesound.org/apiv2/sounds/{track_id}/"
+                    d_r = requests.get(detail_url, params={"token": FREESOUND_API_KEY})
+                    track_details = d_r.json()
+                    preview_url = track_details["previews"]["preview-hq-mp3"]
+                    print(f"   -> Lade herunter: {track['name']}")
+                    mp3_r = requests.get(preview_url)
+                    self.music_path = f"{TEMP_DIR}/music_download.mp3"
+                    with open(self.music_path, "wb") as f:
+                        f.write(mp3_r.content)
+                    return True
+                return False
+
+            # Erst themenbezogen, dann Fallback auf lofi loop
+            found = _search_and_download(f"background {search_topic}")
+            if found:
+                return
+            print("   -> Keine passenden Treffer, versuche Standard-Loop...")
+            found = _search_and_download("lofi study loop")
+            if found:
+                return
+
+            print("   -> Nichts gefunden. Nutze Stille.")
+            self.music_path = f"{TEMP_DIR}/silence.mp3"
+            AudioSegment.silent(duration=10000).export(self.music_path, format="mp3")
+
+        except Exception as e:
+            print(f"   ⚠️ Musik-Fehler: {e}. Nutze Stille.")
+            self.music_path = None
+
+    # --------------------------------------------------------------------------
+    # 4. STIMME (Google Cloud TTS)
     # --------------------------------------------------------------------------
     def generate_voice(self):
-        print("🗣️  3. Generiere Stimme (Gemini TTS)...")
+        print("🗣️  4. Generiere Stimme (Gemini TTS)...")
 
         model_tts = "gemini-2.5-pro-preview-tts"
         voice_name = "umbriel"
@@ -302,60 +377,6 @@ class PodcastGenerator:
         print("   -> Sprachdatei erstellt.")
 
     # --------------------------------------------------------------------------
-    # 4. MUSIK (Freesound.org)
-    # --------------------------------------------------------------------------
-    def fetch_music(self):
-        print("🎵 4. Suche Hintergrundmusik (Freesound)...")
-        local_music = os.path.join(ASSETS_DIR, "background_loop.mp3")
-        if os.path.exists(local_music):
-            self.music_path = local_music
-            print("   -> Lokale Datei 'background_loop.mp3' gefunden.")
-            return
-
-        try:
-            def _search_and_download(query: str) -> bool:
-                url = "https://freesound.org/apiv2/search/text/"
-                params = {
-                    "query": query,
-                    "token": FREESOUND_API_KEY,
-                    "sort": "rating_desc",
-                    "filter": "duration:[60 TO 300]"
-                }
-                resp = requests.get(url, params=params)
-                data = resp.json()
-                if data.get("results"):
-                    track = data["results"][0]
-                    track_id = track["id"]
-                    detail_url = f"https://freesound.org/apiv2/sounds/{track_id}/"
-                    d_r = requests.get(detail_url, params={"token": FREESOUND_API_KEY})
-                    track_details = d_r.json()
-                    preview_url = track_details["previews"]["preview-hq-mp3"]
-                    print(f"   -> Lade herunter: {track['name']}")
-                    mp3_r = requests.get(preview_url)
-                    self.music_path = f"{TEMP_DIR}/music_download.mp3"
-                    with open(self.music_path, "wb") as f:
-                        f.write(mp3_r.content)
-                    return True
-                return False
-
-            # Erst themenbezogen, dann Fallback auf lofi loop
-            found = _search_and_download(f"podcast background {self.topic} instrumental")
-            if found:
-                return
-            print("   -> Keine passenden Treffer, versuche Standard-Loop...")
-            found = _search_and_download("lofi study loop")
-            if found:
-                return
-
-            print("   -> Nichts gefunden. Nutze Stille.")
-            self.music_path = f"{TEMP_DIR}/silence.mp3"
-            AudioSegment.silent(duration=10000).export(self.music_path, format="mp3")
-
-        except Exception as e:
-            print(f"   ⚠️ Musik-Fehler: {e}. Nutze Stille.")
-            self.music_path = None
-
-    # --------------------------------------------------------------------------
     # 5. MIXING
     # --------------------------------------------------------------------------
     def mix_audio(self):
@@ -425,7 +446,7 @@ class PodcastGenerator:
     # 7. METADATEN
     # --------------------------------------------------------------------------
     def generate_metadata(self):
-        print("📄  7. Metadaten...")
+        print("📄 7. Metadaten...")
         transcription_output_path = os.path.join(
             OUTPUT_DIR, f"{self.topic.replace(' ', '_')}_transcription.txt"
         )
@@ -537,8 +558,8 @@ if __name__ == "__main__":
     
     bot.research_trends()
     bot.generate_script()
-    bot.generate_voice()
     bot.fetch_music()
+    bot.generate_voice()
     bot.mix_audio()
     bot.create_video()
     bot.generate_metadata()
