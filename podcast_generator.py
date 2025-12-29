@@ -6,6 +6,7 @@ import subprocess
 import re
 import io
 import mimetypes
+import math
 from pytrends.request import TrendReq
 from google import genai
 from google.genai import errors as genai_errors
@@ -196,7 +197,7 @@ class PodcastGenerator:
     # 2. SKRIPT (Gemini)
     # --------------------------------------------------------------------------
     def generate_script(self):
-        print(f"✍️ 2. Gemini schreibt das Skript über '{self.topic}'...")
+        print(f"✍️  2. Gemini schreibt das Skript über '{self.topic}'...")
 
         # Prompt optimiert für SSML Betonung
         prompt = f"""
@@ -260,10 +261,11 @@ class PodcastGenerator:
     # 3. STIMME (Google Cloud TTS)
     # --------------------------------------------------------------------------
     def generate_voice(self):
-        print("🗣️ 3. Generiere Stimme (Gemini TTS)...")
+        print("🗣️  3. Generiere Stimme (Gemini TTS)...")
 
         model_tts = "gemini-2.5-pro-preview-tts"
-        voice_name = "gacrux"
+        voice_name = "umbriel"
+        print(f"   -> Verwende TTS-Modell: {model_tts} (Stimme: {voice_name})")
 
         def _part_to_segment(part: types.Part, chunk_idx: int, cand_idx: int) -> AudioSegment:
             if not part.inline_data or not part.inline_data.data:
@@ -375,30 +377,38 @@ class PodcastGenerator:
             return
 
         try:
-            url = "https://freesound.org/apiv2/search/text/"
-            params = {
-                "query": "lofi study loop",
-                "token": FREESOUND_API_KEY,
-                "sort": "rating_desc",
-                "filter": "duration:[60 TO 300]"
-            }
-            r = requests.get(url, params=params)
-            data = r.json()
-            
-            if data.get('results'):
-                track = data['results'][0]
-                track_id = track['id']
-                detail_url = f"https://freesound.org/apiv2/sounds/{track_id}/"
-                d_r = requests.get(detail_url, params={"token": FREESOUND_API_KEY})
-                track_details = d_r.json()
-                
-                preview_url = track_details['previews']['preview-hq-mp3']
-                print(f"   -> Lade herunter: {track['name']}")
-                
-                mp3_r = requests.get(preview_url)
-                self.music_path = f"{TEMP_DIR}/music_download.mp3"
-                with open(self.music_path, "wb") as f:
-                    f.write(mp3_r.content)
+            def _search_and_download(query: str) -> bool:
+                url = "https://freesound.org/apiv2/search/text/"
+                params = {
+                    "query": query,
+                    "token": FREESOUND_API_KEY,
+                    "sort": "rating_desc",
+                    "filter": "duration:[60 TO 300]"
+                }
+                resp = requests.get(url, params=params)
+                data = resp.json()
+                if data.get("results"):
+                    track = data["results"][0]
+                    track_id = track["id"]
+                    detail_url = f"https://freesound.org/apiv2/sounds/{track_id}/"
+                    d_r = requests.get(detail_url, params={"token": FREESOUND_API_KEY})
+                    track_details = d_r.json()
+                    preview_url = track_details["previews"]["preview-hq-mp3"]
+                    print(f"   -> Lade herunter: {track['name']}")
+                    mp3_r = requests.get(preview_url)
+                    self.music_path = f"{TEMP_DIR}/music_download.mp3"
+                    with open(self.music_path, "wb") as f:
+                        f.write(mp3_r.content)
+                    return True
+                return False
+
+            # Erst themenbezogen, dann Fallback auf lofi loop
+            found = _search_and_download(f"podcast background {self.topic} instrumental")
+            if found:
+                return
+            print("   -> Keine passenden Treffer, versuche Standard-Loop...")
+            found = _search_and_download("lofi study loop")
+            if found:
                 return
 
             print("   -> Nichts gefunden. Nutze Stille.")
@@ -413,27 +423,23 @@ class PodcastGenerator:
     # 5. MIXING
     # --------------------------------------------------------------------------
     def mix_audio(self):
-        print("🎛️ 5. Mixing...")
+        print("🎛️  5. Mixing...")
         voice = AudioSegment.from_mp3(self.audio_voice_path)
 
         if self.music_path and os.path.exists(self.music_path):
             music = AudioSegment.from_mp3(self.music_path)
             music = music - 18 
 
-            def _loop_music(track: AudioSegment, target_ms: int, crossfade_ms: int = 400) -> AudioSegment:
-                """Loop music with crossfade to avoid gaps until target length."""
-                out = track
-                while len(out) < target_ms:
-                    remaining = target_ms - len(out)
-                    # Take only what we need from the next chunk to avoid overrun
-                    chunk = track[:remaining]
-                    out = out.append(chunk, crossfade=crossfade_ms)
-                return out[:target_ms]
+            def _loop_music_fast(track: AudioSegment, target_ms: int) -> AudioSegment:
+                """Fast loop by pre-repeating and slicing (no per-iteration copies)."""
+                reps = max(2, math.ceil(target_ms / len(track)) + 1)
+                combined = track * reps
+                return combined[:target_ms]
 
-            target_len = len(voice) + 3000  # small pad for fade out
-            music = _loop_music(music, target_len)
-            music = music.fade_out(2000)
-            final = music.overlay(voice, position=300)
+            target_len = len(voice) + 2000  # small pad for fade out
+            music = _loop_music_fast(music, target_len)
+            music = music.fade_out(1500)
+            final = music.overlay(voice, position=200)
         else:
             final = voice
 
@@ -483,7 +489,7 @@ class PodcastGenerator:
     # 7. METADATEN
     # --------------------------------------------------------------------------
     def generate_metadata(self):
-        print("📄 7. Metadaten...")
+        print("📄  7. Metadaten...")
         transcription_output_path = os.path.join(
             OUTPUT_DIR, f"{self.topic.replace(' ', '_')}_transcription.txt"
         )
