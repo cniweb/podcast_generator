@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  lint-and-compile:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install ruff==0.6.8
+
+      - name: Static import sanity check
+        run: |
+          python - <<'PY'
+          import importlib
+          deps = [
+              'google.genai',
+              'pytrends',
+              'pydub',
+              'requests',
+              'dotenv',
+          ]
+          for dep in deps:
+              try:
+                  importlib.import_module(dep)
+              except Exception as exc:
+                  raise SystemExit(f"Import failed for {dep}: {exc}")
+          PY
+
+      - name: Ruff lint
+        run: ruff check podcast_generator.py
+
+      - name: Byte-compile python
+        run: python -m compileall podcast_generator.py
