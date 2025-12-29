@@ -169,7 +169,7 @@ class PodcastGenerator:
         self.final_video_path = ""
         self.sources = []
         self.transcript_path = ""
-        print(f"🚀 Starte Produktion für Thema: {topic}")
+        print(f"🚀 Starte Produktion für Thema: '{topic}'")
 
     # --------------------------------------------------------------------------
     # 1. TRENDS
