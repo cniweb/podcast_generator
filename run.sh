@@ -66,11 +66,10 @@ then
     echo -e "${YELLOW}Hinweis: 'audioop' fehlt in ${PYTHON_BIN}. Wir installieren 'audioop-lts' über requirements.txt.${NC}"
 fi
 
-# 3c. Ordner leeren
+# 3c. Ordner sicherstellen; Temp leeren, Output behalten
 mkdir -p "$PODCAST_TEMP_DIR" "$PODCAST_OUTPUT_DIR"
-echo -e "${YELLOW}Leere $PODCAST_TEMP_DIR und $PODCAST_OUTPUT_DIR...${NC}"
+echo -e "${YELLOW}Leere $PODCAST_TEMP_DIR...${NC}"
 find "$PODCAST_TEMP_DIR" -mindepth 1 -delete
-find "$PODCAST_OUTPUT_DIR" -mindepth 1 -delete
 
 # 4. VIRTUAL ENVIRONMENT (.venv) SETUP
 if [ ! -d ".venv" ]; then
