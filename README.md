@@ -73,3 +73,7 @@ Ausgaben:
 - Fehler "Environment variable ... is required": .env prüfen und Wert setzen.
 - ffmpeg nicht gefunden: `brew install ffmpeg` (macOS) oder `apt-get install ffmpeg` (Linux) oder `setup.sh` erneut ausführen.
 - Audioop fehlt: `run.sh` installiert `audioop-lts` über requirements; sicherstellen, dass Python 3.12+ genutzt wird.
+
+## Hinweise für Agents / Copilot
+
+Siehe [AGENTS.md](AGENTS.md) für Leitplanken, Arbeitsweise und Qualitätssicherung.
