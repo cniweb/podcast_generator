@@ -31,12 +31,12 @@ GEMINI_API_KEY = _require_env("GEMINI_API_KEY")
 GOOGLE_APPLICATION_CREDENTIALS = _require_env("GOOGLE_APPLICATION_CREDENTIALS")
 FREESOUND_API_KEY = _require_env("FREESOUND_API_KEY")
 
-# Podcast Einstellungen
-PODCAST_NAME = "Gehirntakko"
-SLOGAN = "Wissen in unter 5 Minuten"
-TEMP_DIR = "temp_assets"
-OUTPUT_DIR = "finished_episodes"
-ASSETS_DIR = "assets"
+# Podcast Einstellungen aus .env
+PODCAST_NAME = _require_env("PODCAST_NAME")
+SLOGAN = _require_env("PODCAST_SLOGAN")
+TEMP_DIR = _require_env("PODCAST_TEMP_DIR")
+OUTPUT_DIR = _require_env("PODCAST_OUTPUT_DIR")
+ASSETS_DIR = _require_env("PODCAST_ASSETS_DIR")
 
 # Ordner erstellen
 os.makedirs(TEMP_DIR, exist_ok=True)

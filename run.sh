@@ -40,13 +40,16 @@ set -a
 source "$ENV_FILE"
 set +a
 
-for var in GEMINI_API_KEY FREESOUND_API_KEY GOOGLE_APPLICATION_CREDENTIALS; do
+required_vars=(GEMINI_API_KEY FREESOUND_API_KEY GOOGLE_APPLICATION_CREDENTIALS PODCAST_NAME PODCAST_SLOGAN PODCAST_TEMP_DIR PODCAST_OUTPUT_DIR PODCAST_ASSETS_DIR)
+for var in "${required_vars[@]}"; do
     value=${!var}
     if [ -z "$value" ] || [[ "$value" == your_* ]]; then
         echo -e "${RED}Fehler: $var ist nicht gesetzt oder noch Platzhalter.${NC}"
         exit 1
     fi
 done
+
+
 
 if [ ! -f "$GOOGLE_APPLICATION_CREDENTIALS" ]; then
     echo -e "${YELLOW}Warnung: GOOGLE_APPLICATION_CREDENTIALS Datei wurde unter '$GOOGLE_APPLICATION_CREDENTIALS' nicht gefunden.${NC}"
@@ -64,10 +67,10 @@ then
 fi
 
 # 3c. Ordner leeren
-mkdir -p temp_assets finished_episodes
-echo -e "${YELLOW}Leere temp_assets und finished_episodes...${NC}"
-find temp_assets -mindepth 1 -delete
-find finished_episodes -mindepth 1 -delete
+mkdir -p "$PODCAST_TEMP_DIR" "$PODCAST_OUTPUT_DIR"
+echo -e "${YELLOW}Leere $PODCAST_TEMP_DIR und $PODCAST_OUTPUT_DIR...${NC}"
+find "$PODCAST_TEMP_DIR" -mindepth 1 -delete
+find "$PODCAST_OUTPUT_DIR" -mindepth 1 -delete
 
 # 4. VIRTUAL ENVIRONMENT (.venv) SETUP
 if [ ! -d ".venv" ]; then

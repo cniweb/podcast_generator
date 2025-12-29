@@ -8,6 +8,36 @@ NC='\033[0m' # No Color
 
 echo -e "${GREEN}--- Gehirntakko Setup Assistent ---${NC}"
 
+# .env prüfen und erforderliche Schlüssel
+if [ ! -f ".env" ]; then
+    echo -e "${RED}Fehler: .env fehlt. Bitte anlegen und Schlüssel setzen.${NC}"
+    exit 1
+fi
+
+set -a
+source .env
+set +a
+
+required_vars=(GEMINI_API_KEY FREESOUND_API_KEY GOOGLE_APPLICATION_CREDENTIALS PODCAST_NAME PODCAST_SLOGAN PODCAST_TEMP_DIR PODCAST_OUTPUT_DIR PODCAST_ASSETS_DIR)
+missing=()
+for var in "${required_vars[@]}"; do
+    val=${!var}
+    if [ -z "$val" ] || [[ "$val" == your_* ]]; then
+        missing+=("$var")
+    fi
+done
+
+if [ ${#missing[@]} -gt 0 ]; then
+    echo -e "${RED}Fehler: Folgende Variablen fehlen oder sind Platzhalter: ${missing[*]}${NC}"
+    exit 1
+fi
+
+if [ -n "$GOOGLE_APPLICATION_CREDENTIALS" ] && [ ! -f "$GOOGLE_APPLICATION_CREDENTIALS" ]; then
+    echo -e "${YELLOW}Warnung: GOOGLE_APPLICATION_CREDENTIALS Datei wurde unter '$GOOGLE_APPLICATION_CREDENTIALS' nicht gefunden.${NC}"
+fi
+
+echo -e "${GREEN}✓ .env geprüft.${NC}"
+
 # 1. Prüfen ob Python3 installiert ist
 if ! command -v python3 &> /dev/null; then
     echo -e "${RED}Fehler: Python 3 ist nicht installiert.${NC}"
