@@ -131,7 +131,7 @@ class PodcastGenerator:
         print("🔍 1. Analysiere Google Trends...")
         try:
             pytrends = TrendReq(hl='de', tz=120)
-            pytrends.build_payload([self.topic], cat=0, timeframe='now 7-d', geo='DE')
+            pytrends.build_payload([self.topic], cat=0, timeframe='today 1-m', geo='DE')
             related = pytrends.related_queries()
             
             if self.topic in related and related[self.topic]['top'] is not None:
