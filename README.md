@@ -13,8 +13,8 @@
 2. `setup.sh`
    - Optionaler Helfer: prüft `.env`, FFmpeg, Python, installiert Requirements.
 3. `podcast_generator.py`
-   - Trends: holt Top-Query via Google Trends (pytrends).
-   - Skript: Gemini-Textmodell generiert deutschen Sprechtext, säubert Formatierung, speichert Transkript.
+   - Trends: holt Top-Query via Google Trends (pytrends) mit Fokus DACH (DE/AT/CH); fällt bei Fehlschlag auf statisches Thema zurück.
+   - Skript: Gemini-Textmodell generiert deutschen Sprechtext, säubert Formatierung, entfernt Regie-/Sound-Anweisungen, speichert Transkript.
    - Stimme: Gemini TTS (`gemini-2.5-pro-preview-tts`, Stimme konfigurierbar) generiert Audio in Chunks, fügt per pydub zusammen.
    - Musik: sucht Freesound nach „podcast background `topic` instrumental“, fällt auf „lofi study loop“ zurück, sonst Stille.
    - Mixing: Sprachspur mit geloopter Musik unterlegt, Export als MP3; Video mit FFmpeg als Standbild + Audio.
