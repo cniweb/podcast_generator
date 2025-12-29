@@ -212,7 +212,7 @@ class PodcastGenerator:
            - Knackiges Intro (Begrüßung + Slogan).
            - 3 faszinierende Fakten (Deep Dive).
            - Kurzes, warmes Outro.
-        4. Formatierung: Reiner Sprechtext. Keine Regieanweisungen ("Lacht", "Musik", "Sound", "Jingle"), keine Labels oder Überschriften wie "Sprechtext" oder "---", keine Trennerlinien, kein Text vor dem eigentlichen gesprochenen Einstieg.
+        4. Formatierung: Reiner Sprechtext. Keine Regieanweisungen oder Bühnenanweisungen (kein "Lacht", "Musik", "Sound", "Jingle", "Atmos", "Beat", "faded" etc.), keine Labels oder Überschriften wie "Sprechtext" oder "---", keine Trennerlinien, kein Text vor dem eigentlichen gesprochenen Einstieg.
         5. Länge: Ca. 700 Wörter.
         6. Metadaten: Am Ende eine Zeile: "QUELLEN: url1; url2".
         7. Sprache: Deutsch
@@ -221,7 +221,7 @@ class PodcastGenerator:
         10. Vermeide Fachjargon; erkläre komplexe Begriffe einfach.
         11. Vermeide Wiederholungen und Füllwörter.
         12. Schreibe so, dass es sich natürlich anhört, wenn es vorgelesen wird.
-        13. Erwähne am Ende das die Zuhörer den Podcast gerene bewerten können und uns folgen sollen (#Gehirntakko).
+        13. Erwähne am Ende das die Zuhörer den Podcast gerene bewerten können und uns folgen sollen (Hashtag {PODCAST_NAME}).
         """
         
         preferred = ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-pro-latest"]
