@@ -48,3 +48,6 @@ jobs:
 
       - name: Byte-compile python
         run: python -m compileall podcast_generator.py
+
+      - name: Run pytest
+        run: pytest -q

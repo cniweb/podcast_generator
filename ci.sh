@@ -43,4 +43,7 @@ PY
 # Syntax check
 $python_bin -m compileall podcast_generator.py
 
+# Tests
+$python_bin -m pytest -q
+
 echo "All checks passed."

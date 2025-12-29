@@ -5,3 +5,4 @@ pydub
 requests
 audioop-lts
 python-dotenv
+pytest
