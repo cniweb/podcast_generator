@@ -6,12 +6,12 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-# 1. PARAMETER CHECK (Das Thema muss übergeben werden)
-if [ -z "$1" ]; then
-    echo -e "${RED}Fehler: Kein Thema angegeben!${NC}"
-    echo -e "Nutzung: ./run.sh \"Dein Thema\""
-    echo -e "Beispiel: ./run.sh \"Schwarze Löcher\""
-    exit 1
+# 1. PARAMETER (Thema optional; wenn leer -> Trends) und Hilfe
+if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
+    echo "Nutzung: ./run.sh [Thema]"
+    echo "Beispiel: ./run.sh \"Schwarze Löcher\""
+    echo "Ohne Thema wird der aktuelle Top-Trend aus Google Trends (Deutschland) genutzt."
+    exit 0
 fi
 
 TOPIC="$1"

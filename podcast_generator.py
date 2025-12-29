@@ -8,6 +8,7 @@ import io
 import mimetypes
 import math
 from pytrends.request import TrendReq
+from pytrends import exceptions as pytrends_exceptions
 from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types
@@ -177,7 +178,7 @@ class PodcastGenerator:
     def research_trends(self):
         print("🔍 1. Analysiere Google Trends...")
         try:
-            pytrends = TrendReq(hl='de-DE', tz=360)
+            pytrends = TrendReq(hl='de', tz=120)
             pytrends.build_payload([self.topic], cat=0, timeframe='now 7-d', geo='DE')
             related = pytrends.related_queries()
             
@@ -517,7 +518,86 @@ class PodcastGenerator:
 # ==============================================================================
 if __name__ == "__main__":
     print(f"--- {PODCAST_NAME.upper()} AUTOMATISIERUNG ---")
-    topic = input("Thema: ")
+    topic = input("Thema (Lass leer für aktuellen Top-Trend): ").strip()
+
+    if not topic:
+        print("🔍 Keine Eingabe. Suche nach aktuellen Trends in Deutschland...")
+        try:
+            pytrends = TrendReq(hl='de', tz=120)
+            debug_today = {}
+
+            def _try_today(country_code: str):
+                # Try dailytrends, then realtime, then legacy trending_searches
+                def _pick_realtime(df_rt):
+                    if df_rt is None or df_rt.empty:
+                        return None
+                    row0 = df_rt.iloc[0]
+                    title = None
+                    if "title" in df_rt.columns:
+                        t = row0.get("title")
+                        if isinstance(t, list) and t:
+                            title = t[0]
+                        elif isinstance(t, str) and t.strip():
+                            title = t.strip()
+                    if not title and "entityNames" in df_rt.columns:
+                        names = row0.get("entityNames")
+                        if isinstance(names, list) and names:
+                            title = names[0]
+                    return title
+
+                try:
+                    df = pytrends.today_searches(pn=country_code)
+                    if df is not None:
+                        debug_today[country_code] = df.head().to_string(index=False)
+                    if df is not None and not df.empty:
+                        return df.iloc[0]
+                except Exception as err:
+                    debug_today[country_code] = f"dailytrends Fehler: {err}"
+
+                try:
+                    df_rt = pytrends.realtime_trending_searches(pn=country_code, count=50)
+                    if df_rt is not None:
+                        debug_today[f"{country_code}-realtime"] = df_rt.head().to_string(index=False)
+                    pick = _pick_realtime(df_rt)
+                    if pick:
+                        return pick
+                except Exception as err:
+                    debug_today[f"{country_code}-realtime"] = f"realtime Fehler: {err}"
+
+                try:
+                    pn_map = {
+                        'DE': 'germany',
+                        'AT': 'austria',
+                        'CH': 'switzerland',
+                    }
+                    pn_val = pn_map.get(country_code, 'germany')
+                    df_legacy = pytrends.trending_searches(pn=pn_val)
+                    if df_legacy is not None:
+                        debug_today[f"{country_code}-legacy"] = df_legacy.head().to_string(index=False)
+                    if df_legacy is not None and not df_legacy.empty:
+                        return df_legacy.iloc[0, 0]
+                except Exception as err:
+                    debug_today[f"{country_code}-legacy"] = f"legacy Fehler: {err}"
+
+                return None
+
+            trend_topic = (
+                _try_today('DE')
+                or _try_today('AT')
+                or _try_today('CH')
+            )
+
+            if trend_topic:
+                topic = trend_topic
+                print(f"📈 Top-Trend gefunden: '{topic}'")
+            else:
+                print("   ⚠️ Keine Trends gefunden. Nutze Fallback.")
+                for code, dbg in debug_today.items():
+                    print(f"   🔎 today_searches {code}: {dbg}")
+                topic = "Künstliche Intelligenz"
+        except Exception as e:
+            print(f"   ⚠️ Fehler bei Trend-Suche: {e}. Nutze Fallback.")
+            topic = "Künstliche Intelligenz"
     bot = PodcastGenerator(topic)
     
     bot.research_trends()
