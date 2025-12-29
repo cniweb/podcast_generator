@@ -1,5 +1,4 @@
 import os
-import time
 import requests
 import json
 import subprocess
@@ -8,9 +7,7 @@ import io
 import mimetypes
 import math
 from pytrends.request import TrendReq
-from pytrends import exceptions as pytrends_exceptions
 from google import genai
-from google.genai import errors as genai_errors
 from google.genai import types
 from pydub import AudioSegment
 from dotenv import load_dotenv
