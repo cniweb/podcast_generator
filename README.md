@@ -40,8 +40,8 @@ GEMINI_API_KEY=dein_gemini_key
 FREESOUND_API_KEY=dein_freesound_key
 GOOGLE_APPLICATION_CREDENTIALS=google_cloud_credentials.json
 
-PODCAST_NAME=Gehirntakko
-PODCAST_SLOGAN=Wissen in unter 5 Minuten
+PODCAST_NAME="Mein Podcast"
+PODCAST_SLOGAN="Alles, was man sissen muss..."
 PODCAST_TEMP_DIR=temp_assets
 PODCAST_OUTPUT_DIR=finished_episodes
 PODCAST_ASSETS_DIR=assets
@@ -57,10 +57,10 @@ chmod +x run.sh setup.sh
 
 Ausgaben:
 
-- Audio: `<PODCAST_OUTPUT_DIR>/<Thema_unterstrichen>.mp3`
-- Video: `<PODCAST_OUTPUT_DIR>/<Thema_unterstrichen>_video.mp4` (falls Cover im Assets-Ordner vorhanden)
-- Transkript: `<PODCAST_OUTPUT_DIR>/<Thema_unterstrichen>_transcription.txt`
-- Metadaten: `<PODCAST_OUTPUT_DIR>/<Thema_unterstrichen>_meta.json`
+- Audio: `<PODCAST_OUTPUT_DIR>/<Thema>.mp3`
+- Video: `<PODCAST_OUTPUT_DIR>/<Thema>_video.mp4` (falls Cover im Assets-Ordner vorhanden)
+- Transkript: `<PODCAST_OUTPUT_DIR>/<Thema>_transcription.txt`
+- Metadaten: `<PODCAST_OUTPUT_DIR>/<Thema>_meta.json`
 
 ## Konfiguration
 

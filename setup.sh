@@ -6,7 +6,7 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m' # No Color
 
-echo -e "${GREEN}--- Gehirntakko Setup Assistent ---${NC}"
+echo -e "${GREEN}--- $PODCAST_NAME Setup Assistent ---${NC}"
 
 # .env prüfen und erforderliche Schlüssel
 if [ ! -f ".env" ]; then
@@ -98,6 +98,6 @@ fi
 # 4. Abschluss und API Key Check
 echo -e "\n${GREEN}--- Installation abgeschlossen! ---${NC}"
 echo -e "${YELLOW}Erinnerung: Bitte stelle sicher, dass du folgende Schritte erledigt hast:${NC}"
-echo "1. .env mit GEMINI_API_KEY, FREESOUND_API_KEY, GOOGLE_APPLICATION_CREDENTIALS füllen."
+echo "1. .env mit GEMINI_API_KEY, FREESOUND_API_KEY, GOOGLE_APPLICATION_CREDENTIALS, PODCAST_NAME, PODCAST_SLOGAN, PODCAST_TEMP_DIR, PODCAST_OUTPUT_DIR und PODCAST_ASSETS_DIR füllen."
 echo "2. Die Datei 'google_cloud_credentials.json' muss im selben Ordner liegen oder der Pfad im .env gesetzt sein."
 echo -e "\nDu kannst das Programm nun starten mit: ${GREEN}python3 podcast_generator.py${NC}"

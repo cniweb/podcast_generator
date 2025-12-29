@@ -99,7 +99,7 @@ else
 fi
 
 # 6. PROGRAMM STARTEN
-echo -e "\n${GREEN}🚀 Starte Gehirntakko Generator mit Thema: '$TOPIC'${NC}"
+echo -e "\n${GREEN}🚀 Starte $PODCAST_NAME Generator mit Thema: '$TOPIC'${NC}"
 echo "------------------------------------------------"
 
 # Wir pipen das Thema direkt in das Python-Skript, da dieses 'input()' verwendet.
