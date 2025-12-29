@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 from typing import List
 
 # ==============================================================================
-# KONFIGURATION & API KEYS
+# KONFIGURATION & API KEYS aus .env auslesen
 # ==============================================================================
 from utils import _chunk_text, _spell_out_abbreviations, _strip_formatting
 load_dotenv()
