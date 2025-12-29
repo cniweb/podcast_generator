@@ -16,6 +16,7 @@ from typing import List
 # ==============================================================================
 # KONFIGURATION & API KEYS
 # ==============================================================================
+from utils import _chunk_text, _spell_out_abbreviations, _strip_formatting
 load_dotenv()
 
 def _require_env(var_name):
@@ -45,35 +46,6 @@ os.makedirs(ASSETS_DIR, exist_ok=True)
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 
-def _spell_out_abbreviations(text: str) -> str:
-    """Expand 2-3 letter uppercase abbreviations (e.g., KI -> K I) for TTS clarity."""
-    pattern = re.compile(r"(?<!#)\b([A-ZÄÖÜ]{2,3})\b")
-    stoplist = {
-        "DER", "DIE", "DAS", "UND", "DEN", "DEM", "DES", "EIN", "EINE",
-        "VON", "MIT", "AUS", "IM", "IN", "AM", "BEI", "AUF", "FÜR", "AN",
-        "IST", "SIND", "ICH", "DU", "ER", "SIE", "ES", "WIR", "IHR"
-    }
-
-    def repl(match: re.Match) -> str:
-        word = match.group(1)
-        if word in stoplist:
-            return word
-        return " ".join(list(word))
-
-    return pattern.sub(repl, text)
-
-
-def _strip_formatting(text: str) -> str:
-    """
-    Entfernt Formatierungen; Sternchen werden entfernt (kein SSML-Emphasis nötig).
-    """
-    text = re.sub(r"\[\s*([^\]]+)\s*\]", r"\1", text)
-    text = re.sub(r"\(\s*([^\)]+)\s*\)", r"\1", text)
-    text = re.sub(r"\[([^\]]+)\]\([^\)]+\)", r"\1", text)
-    text = text.replace("*", "")
-    return text
-
-
 def _to_ssml(text: str) -> str:
     """Wandelt Text in SSML ohne <emphasis>; nur Absätze/Sätze für Atempausen."""
     def _escape_ssml(value: str) -> str:
@@ -94,40 +66,6 @@ def _to_ssml(text: str) -> str:
     return "".join(ssml_parts)
 
 
-def _chunk_text(text: str, max_chars: int = 1500) -> List[str]:
-    """Chunk text to respect TTS limits, splitting by paragraphs."""
-    paragraphs = [p for p in text.split("\n\n") if p.strip()]
-    chunks = []
-    current = []
-    current_len = 0
-
-    for para in paragraphs:
-        para_len = len(para)
-        # Wenn ein einzelner Paragraph zu lang ist, müssen wir ihn leider hart teilen
-        if para_len > max_chars:
-            if current:
-                chunks.append("\n\n".join(current))
-                current = []
-                current_len = 0
-            
-            # Groben Split machen
-            chunks.append(para[:max_chars]) # Vereinfacht, besser wäre wortweiser Split
-            # (Für Podcast Skripte sind Absätze meist < 1500 Zeichen)
-            continue
-
-        if current_len + para_len + 2 <= max_chars:
-            current.append(para)
-            current_len += para_len + 2
-        else:
-            if current:
-                chunks.append("\n\n".join(current))
-            current = [para]
-            current_len = para_len
-
-    if current:
-        chunks.append("\n\n".join(current))
-
-    return chunks
 
 def pick_available_model(preferences: List[str]) -> str:
     """Wählt das bestmögliche Modell anhand der Präferenz-Reihenfolge."""
