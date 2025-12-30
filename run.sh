@@ -1,4 +1,5 @@
 #!/bin/bash
+# Startskript: validiert .env, richtet venv ein und startet podcast_generator.
 
 # Farben
 RED='\033[0;31m'

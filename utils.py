@@ -4,7 +4,7 @@ from typing import List
 
 def _spell_out_abbreviations(text: str) -> str:
     """Expand 2-3 letter uppercase abbreviations (e.g., KI -> K I) for TTS clarity."""
-    pattern = re.compile(r"(?<!#)\b([A-ZÄÖÜ]{2,3})\b")
+    pattern = re.compile(r"(?<!#)\b([A-ZÄÖÜ]{2,3})\b")  # Hashtags ausnehmen
     stoplist = {
         "DER", "DIE", "DAS", "UND", "DEN", "DEM", "DES", "EIN", "EINE",
         "VON", "MIT", "AUS", "IM", "IN", "AM", "BEI", "AUF", "FÜR", "AN",
@@ -21,10 +21,8 @@ def _spell_out_abbreviations(text: str) -> str:
 
 
 def _strip_formatting(text: str) -> str:
-    """
-    Entfernt Markdown-Formatierungen und Sternchen-Betonung.
-    """
-    text = re.sub(r"\[([^\]]+)\]\([^\)]+\)", r"\1", text)  # Markdown Link -> Text
+    """Entfernt Markdown-Formatierungen und Sternchen-Betonung."""
+    text = re.sub(r"\[([^\]]+)\]\([^\)]+\)", r"\1", text)  # Markdown-Link -> Text
     text = re.sub(r"\[\s*([^\]]+)\s*\]", r"\1", text)
     text = re.sub(r"\(\s*([^\)]+)\s*\)", r"\1", text)
     text = re.sub(r"\*(.*?)\*", r"\1", text)
@@ -32,7 +30,7 @@ def _strip_formatting(text: str) -> str:
 
 
 def _chunk_text(text: str, max_chars: int = 1500) -> List[str]:
-    """Chunk text to respect TTS limits, splitting by paragraphs."""
+    """Zerteilt Text nach Absätzen, damit TTS-Limits eingehalten werden."""
     paragraphs = [p for p in text.split("\n\n") if p.strip()]
     chunks = []
     current: List[str] = []

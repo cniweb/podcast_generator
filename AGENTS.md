@@ -10,7 +10,7 @@ This repository uses GitHub Copilot (and similar agents) to automate podcast gen
 
 ## Operating Rules
 
-- Default language: German for user-visible text; code comments in English.
+- Default language: German for user-visible text; use concise German docstrings and plain-language comments so the flow stays understandable.
 - Avoid adding stage/sound directions to generated scripts; spoken text only.
 - Environment: rely on `.env` variables; never hardcode keys.
 - Trend region focus: DACH (DE, AT, CH). If trends fail, fall back to static topic.

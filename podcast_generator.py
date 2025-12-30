@@ -22,6 +22,7 @@ from utils import _chunk_text, _spell_out_abbreviations, _strip_formatting
 load_dotenv()
 
 def _require_env(var_name):
+    """Liest eine benötigte Umgebungsvariable ein und bricht mit klarer Meldung ab."""
     value = os.getenv(var_name)
     if not value:
         raise RuntimeError(f"Environment variable {var_name} is required but not set.")
@@ -44,14 +45,12 @@ os.makedirs(TEMP_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 os.makedirs(ASSETS_DIR, exist_ok=True)
 
-# Client Setup
+# Client-Setup
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 
 def _to_ssml(text: str) -> str:
-    """
-    Wandelt Text in SSML um und übersetzt *Wort* in <emphasis>.
-    """
+    """Baut SSML aus Klarschrift und wandelt *Wort* in <emphasis> um."""
     def _escape_ssml(value: str) -> str:
         return value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
@@ -110,6 +109,7 @@ def pick_available_model(preferences: List[str]) -> str:
 
 class PodcastGenerator:
     def __init__(self, topic):
+        """Kapselt den End-to-End-Podcast-Flow für ein bestimmtes Thema."""
         self.topic = topic
         self.script_content = ""
         self.audio_voice_path = ""
@@ -121,6 +121,7 @@ class PodcastGenerator:
         print(f"🚀 Starte Produktion für Thema: '{topic}'")
 
     def _translate_topic_to_en(self, topic: str) -> str:
+        """Übersetzt das Thema knapp ins Englische, falls Freesound-Suche hilft."""
         prompt = (
             "Translate the following topic into concise English keywords for a music search. "
             "Return a short phrase (max 4 words) without quotes or explanations: "
@@ -138,6 +139,7 @@ class PodcastGenerator:
             return topic
 
     def _generate_episode_metadata(self) -> tuple[str, str]:
+        """Erstellt Titel und Beschreibung basierend auf dem Transkript."""
         preferences = ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-pro-latest"]
         model_name = pick_available_model(preferences)
 
@@ -188,6 +190,7 @@ class PodcastGenerator:
     # 1. TRENDS
     # --------------------------------------------------------------------------
     def research_trends(self):
+        """Holt naheliegende Trends für das Thema aus Google Trends (Deutschland)."""
         print("🔍 1. Analysiere Google Trends...")
         try:
             pytrends = TrendReq(hl='de', tz=120)
@@ -210,6 +213,7 @@ class PodcastGenerator:
     # 2. SKRIPT (Gemini)
     # --------------------------------------------------------------------------
     def generate_script(self):
+        """Lässt Gemini ein Podcast-Skript erstellen und säubert Formatierungen."""
         print(f"✍️  2. Gemini schreibt das Skript über '{self.topic}'...")
 
         # Prompt optimiert für SSML Betonung
@@ -274,6 +278,7 @@ class PodcastGenerator:
     # 3. MUSIK (Freesound.org)
     # --------------------------------------------------------------------------
     def fetch_music(self):
+        """Lädt einen Musik-Loop von Freesound oder nutzt lokale/stille Fallbacks."""
         print("🎵 3. Suche Hintergrundmusik (Freesound)...")
         local_music = os.path.join(ASSETS_DIR, "background_loop.mp3")
         if os.path.exists(local_music):
@@ -332,6 +337,7 @@ class PodcastGenerator:
     # 4. STIMME (Google Cloud TTS mit Fallback & SSML)
     # --------------------------------------------------------------------------
     def generate_voice(self):
+        """Konvertiert das Skript in Audio: Gemini TTS mit Rate-Limit-Fallback zu Cloud TTS."""
         print("🗣️  4. Generiere Stimme (Gemini TTS, Fallback Google Cloud TTS + SSML)...")
 
         model_tts = "gemini-2.5-pro-preview-tts"
@@ -438,6 +444,7 @@ class PodcastGenerator:
             audio_bytes = io.BytesIO(response.audio_content)
             return AudioSegment.from_file(audio_bytes, format="mp3")
 
+        # Aufteilen, damit TTS-Grenzen sicher eingehalten werden
         chunks = _chunk_text(self.script_content)
         segments: List[AudioSegment] = []
 
@@ -446,20 +453,20 @@ class PodcastGenerator:
         for idx, chunk in enumerate(chunks):
             max_attempts = 3
             try:
-                # Versuch 1: Gemini TTS (Die beste Qualität)
+                # Versuch 1: Gemini TTS (beste Qualität)
                 for attempt in range(1, max_attempts + 1):
                     try:
                         seg = _generate_chunk_with_gemini(idx, chunk)
                         segments.append(seg)
                         break
                     except Exception as e:
-                        # Bei Rate Limit warten wir exponentiell länger
+                        # Bei Rate-Limit exponentiell warten
                         if _is_rate_limit_error(e) and attempt < max_attempts:
                             delay = 4 ** attempt # Aggressiveres Backoff (4s, 16s...)
                             print(f"   ⚠️  Rate-Limit bei Chunk {idx} (Versuch {attempt}/{max_attempts}), warte {delay}s...")
                             time.sleep(delay)
                             continue
-                        # Wenn alle Versuche fehlschlagen, werfen wir den Fehler weiter
+                        # Wenn alle Versuche fehlschlagen, Fehler weiterreichen
                         if _is_rate_limit_error(e) and attempt == max_attempts:
                             print("   ⚠️  Rate-Limit erschöpft, wechsle zu Google Cloud TTS Fallback...")
                             raise e 
@@ -468,7 +475,7 @@ class PodcastGenerator:
                 else:
                     raise RuntimeError(f"Chunk {idx}: Unbekannter Fehler bei Gemini TTS")
             except Exception as gem_err:
-                # Fallback: Google Cloud TTS (Die solide Qualität mit SSML Boost)
+                # Fallback: Google Cloud TTS (solide Qualität mit SSML-Boost)
                 if _is_rate_limit_error(gem_err):
                     try:
                         print(f"      -> Nutze Cloud TTS mit SSML für Chunk {idx}...")
@@ -495,6 +502,7 @@ class PodcastGenerator:
     # 5. MIXING
     # --------------------------------------------------------------------------
     def mix_audio(self):
+        """Mischt Stimme mit Musik-Loop und exportiert die finale MP3."""
         print("🎛️  5. Mixing...")
         voice = AudioSegment.from_mp3(self.audio_voice_path)
 
@@ -503,12 +511,12 @@ class PodcastGenerator:
             music = music - 18 
 
             def _loop_music_fast(track: AudioSegment, target_ms: int) -> AudioSegment:
-                """Fast loop by pre-repeating and slicing (no per-iteration copies)."""
+                """Loop per Vorverdopplung und Schnitt (spart Kopien in der Schleife)."""
                 reps = max(2, math.ceil(target_ms / len(track)) + 1)
                 combined = track * reps
                 return combined[:target_ms]
 
-            target_len = len(voice) + 2000  # small pad for fade out
+            target_len = len(voice) + 2000  # kleiner Puffer für das Fade-Out
             music = _loop_music_fast(music, target_len)
             music = music.fade_out(1500)
             final = music.overlay(voice, position=200)
@@ -524,6 +532,7 @@ class PodcastGenerator:
     # 6. VIDEO (FFmpeg)
     # --------------------------------------------------------------------------
     def create_video(self):
+        """Erstellt ein Standbild-Video mit Cover und finalem Audio via FFmpeg."""
         print("🎬 6. Erstelle YouTube-Video...")
         cover_png = os.path.join(ASSETS_DIR, "cover.png")
         cover_jpg = os.path.join(ASSETS_DIR, "cover.jpg")
@@ -561,6 +570,7 @@ class PodcastGenerator:
     # 7. METADATEN
     # --------------------------------------------------------------------------
     def generate_metadata(self, include_media: bool = True):
+        """Speichert Transkript, Titel/Beschreibung und Pfade zu Audio/Video."""
         print("📄 7. Metadaten...")
         transcription_output_path = os.path.join(
             OUTPUT_DIR, f"{self.topic.replace(' ', '_')}_transcription.txt"
@@ -589,7 +599,7 @@ class PodcastGenerator:
         print("   -> Fertig.")
 
 # ==============================================================================
-# MAIN
+# HAUPTPROGRAMM
 # ==============================================================================
 if __name__ == "__main__":
     print(f"--- {PODCAST_NAME.upper()} AUTOMATISIERUNG ---")
@@ -602,7 +612,7 @@ if __name__ == "__main__":
             debug_today = {}
 
             def _try_today(country_code: str):
-                # Try dailytrends, then realtime, then legacy trending_searches
+                # Versuche dailytrends, dann realtime, dann legacy trending_searches
                 def _pick_realtime(df_rt):
                     if df_rt is None or df_rt.empty:
                         return None
