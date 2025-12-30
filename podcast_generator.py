@@ -594,8 +594,9 @@ class PodcastGenerator:
             "transcript": self.script_content,
             "transcript_file": transcription_output_path,
         }
+        # ensure_ascii=False, damit Umlaute in title/description lesbar bleiben
         with open(f"{OUTPUT_DIR}/{self.topic.replace(' ', '_')}_meta.json", "w", encoding="utf-8") as f:
-            json.dump(meta, f, indent=4)
+            json.dump(meta, f, ensure_ascii=False, indent=4)
         print("   -> Fertig.")
 
 # ==============================================================================
