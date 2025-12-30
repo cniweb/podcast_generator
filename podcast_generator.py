@@ -4,11 +4,13 @@ import json
 import subprocess
 import re
 import io
-import mimetypes
 import math
+import mimetypes
+import time
 from pytrends.request import TrendReq
 from google import genai
 from google.genai import types
+from google.cloud import texttospeech
 from pydub import AudioSegment
 from dotenv import load_dotenv
 from typing import List
@@ -47,24 +49,35 @@ client = genai.Client(api_key=GEMINI_API_KEY)
 
 
 def _to_ssml(text: str) -> str:
-    """Wandelt Text in SSML ohne <emphasis>; nur Absätze/Sätze für Atempausen."""
+    """
+    Wandelt Text in SSML um und übersetzt *Wort* in <emphasis>.
+    """
     def _escape_ssml(value: str) -> str:
         return value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
+    # 1. Escaping (wichtig, damit & oder < den XML Parser nicht brechen)
     safe_text = _escape_ssml(text)
+
+    # 2. Markdown-Bold/Italic (*Wort*) in SSML Emphasis umwandeln
+    # Regex sucht nach Sternchen-Paaren und ersetzt sie durch emphasis Tags
+    # Das macht die Google Cloud Stimme deutlich lebendiger.
+    safe_text = re.sub(r'\*([^\*]+)\*', r'<emphasis level="moderate">\1</emphasis>', safe_text)
+
     paragraphs = [p.strip() for p in safe_text.split("\n\n") if p.strip()]
 
     ssml_parts = ["<speak>"]
     for para in paragraphs:
+        # Wir verpacken Paragraphen in <p>, das erzeugt natürliche Pausen
+        ssml_parts.append("<p>")
         sentences = re.split(r"(?<=[\.\?!])\s+", para)
         for sent in sentences:
             if not sent.strip():
                 continue
+            # Sätze in <s> Tags helfen der Intonation
             ssml_parts.append(f"<s>{sent.strip()}</s>")
-        ssml_parts.append("<break time=\"300ms\"/>")
+        ssml_parts.append("</p>")
     ssml_parts.append("</speak>")
     return "".join(ssml_parts)
-
 
 
 def pick_available_model(preferences: List[str]) -> str:
@@ -124,6 +137,53 @@ class PodcastGenerator:
             print(f"   ⚠️ Übersetzung fehlgeschlagen, nutze Original: {exc}")
             return topic
 
+    def _generate_episode_metadata(self) -> tuple[str, str]:
+        preferences = ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-pro-latest"]
+        model_name = pick_available_model(preferences)
+
+        prompt = (
+            "Du erstellst Veröffentlichungs-Texte für creators.spotify.com. "
+            f"Podcast: {PODCAST_NAME}; Slogan: {SLOGAN}; Thema: {self.topic}. "
+            "Nutze das Transkript unten, aber fasse dich kurz und präzise. "
+            "Antworte ausschließlich mit JSON (ohne Markdown, Backticks oder Erklärung) im Format: {\"title\": \"...\", \"description\": \"...\"}. "
+            "Constraints: title <= 200 Zeichen, deutsch, ohne Anführungszeichen, kein Hashtag. "
+            "Description <= 4000 Zeichen, deutsch, 2-4 Sätze Zusammenfassung + Call-to-Action zum Folgen/Bewerten; keine Listen, keine Quotes. "
+            "Transkript:\n" + self.script_content
+        )
+
+        try:
+            resp = client.models.generate_content(model=model_name, contents=prompt)
+            raw = resp.text or ""
+
+            def _extract_json(candidate: str) -> str | None:
+                import re
+                match = re.search(r"\{.*\}", candidate, re.DOTALL)
+                return match.group(0) if match else None
+
+            data = None
+            for candidate in (raw, _extract_json(raw)):
+                if not candidate:
+                    continue
+                try:
+                    data = json.loads(candidate)
+                    break
+                except Exception:
+                    continue
+
+            if data is None:
+                raise ValueError("json parse failed")
+
+            title = str(data.get("title", "")).strip()
+            desc = str(data.get("description", "")).strip()
+        except Exception:
+            print("   ⚠️ Konnte Episode-Metadaten nicht parsen, nutze Fallback.")
+            title = f"{PODCAST_NAME}: {self.topic}"
+            desc = f"{SLOGAN}\n\n{self.script_content[:300]}..."
+
+        title = title[:200]
+        desc = desc[:4000]
+        return title, desc
+
     # --------------------------------------------------------------------------
     # 1. TRENDS
     # --------------------------------------------------------------------------
@@ -172,7 +232,7 @@ class PodcastGenerator:
         9. Nutze Absätze für natürliche Pausen (2 Zeilenumbrüche).
         10. Vermeide Fachjargon; erkläre komplexe Begriffe einfach.
         11. Vermeide Wiederholungen und Füllwörter.
-        12. Schreibe so, dass es sich natürlich anhört, wenn es vorgelesen wird.
+        12. Schreibe so, dass es sich natürlich anhört, wenn es vorgelesen wird (kurze Sätze!).
         13. Erwähne am Ende das die Zuhörer den Podcast gerene bewerten können und uns folgen sollen (Hashtag {PODCAST_NAME}).
         """
         
@@ -269,14 +329,18 @@ class PodcastGenerator:
             self.music_path = None
 
     # --------------------------------------------------------------------------
-    # 4. STIMME (Google Cloud TTS)
+    # 4. STIMME (Google Cloud TTS mit Fallback & SSML)
     # --------------------------------------------------------------------------
     def generate_voice(self):
-        print("🗣️  4. Generiere Stimme (Gemini TTS)...")
+        print("🗣️  4. Generiere Stimme (Gemini TTS, Fallback Google Cloud TTS + SSML)...")
 
         model_tts = "gemini-2.5-pro-preview-tts"
         voice_name = "umbriel"
         print(f"   -> Verwende TTS-Modell: {model_tts} (Stimme: {voice_name})")
+
+        def _is_rate_limit_error(exc: Exception) -> bool:
+            msg = str(exc).lower()
+            return "429" in msg or "rate" in msg or "resource_exhausted" in msg
 
         def _part_to_segment(part: types.Part, chunk_idx: int, cand_idx: int) -> AudioSegment:
             if not part.inline_data or not part.inline_data.data:
@@ -286,7 +350,6 @@ class PodcastGenerator:
             if not mime.startswith("audio/"):
                 raise RuntimeError(f"Chunk {chunk_idx}: Kein Audio (mime={mime}, cand={cand_idx})")
 
-            # Spezialfall: rohes PCM (audio/L16;codec=pcm;rate=24000)
             if "L16" in mime or "pcm" in mime:
                 try:
                     return AudioSegment.from_raw(
@@ -318,15 +381,10 @@ class PodcastGenerator:
                     f"Chunk {chunk_idx}: Audio-Dekodierung fehlgeschlagen (mime={mime}, len={len(data)}, cand={cand_idx}): {e}"
                 )
 
-        chunks = _chunk_text(self.script_content)
-        segments: List[AudioSegment] = []
-
-        print(f"   -> Verarbeite {len(chunks)} Text-Abschnitte...")
-
-        for idx, chunk in enumerate(chunks):
+        def _generate_chunk_with_gemini(chunk_idx: int, chunk_text: str) -> AudioSegment:
             content = types.Content(
                 role="user",
-                parts=[types.Part.from_text(text=chunk)]
+                parts=[types.Part.from_text(text=chunk_text)]
             )
 
             cfg = types.GenerateContentConfig(
@@ -339,30 +397,87 @@ class PodcastGenerator:
                 ),
             )
 
+            resp = client.models.generate_content(
+                model=model_tts,
+                contents=[content],
+                config=cfg,
+            )
+            for cand_idx, cand in enumerate(resp.candidates or []):
+                for part in cand.content.parts or []:
+                    try:
+                        return _part_to_segment(part, chunk_idx, cand_idx)
+                    except RuntimeError as e:
+                        print(f"   ⚠️ {e}")
+                        continue
+            raise RuntimeError(f"Keine Audio-Daten im Response (Chunk {chunk_idx}, Modell {model_tts})")
+
+        def _generate_chunk_with_gcloud(chunk_idx: int, chunk_text: str) -> AudioSegment:
+            tts_client = texttospeech.TextToSpeechClient()
+            # Wir nutzen "de-DE-Polyglot-1" oder "Studio-B". Polyglot ist oft moderner.
+            voice_params = texttospeech.VoiceSelectionParams(
+                language_code="de-DE",
+                name="de-DE-Polyglot-1", # Versuche Polyglot, sonst Studio-B
+            )
+            audio_config = texttospeech.AudioConfig(
+                audio_encoding=texttospeech.AudioEncoding.MP3,
+                speaking_rate=1.05, # Leicht schneller für mehr Energie
+                pitch=0.0,
+            )
+            
+            # WICHTIG: SSML generieren mit Betonungen!
+            ssml_text = _to_ssml(chunk_text)
+            
+            synthesis_input = texttospeech.SynthesisInput(ssml=ssml_text)
+            response = tts_client.synthesize_speech(
+                input=synthesis_input,
+                voice=voice_params,
+                audio_config=audio_config,
+            )
+            if not response.audio_content:
+                raise RuntimeError(f"Chunk {chunk_idx}: Leere Audio-Antwort von Google Cloud TTS")
+            audio_bytes = io.BytesIO(response.audio_content)
+            return AudioSegment.from_file(audio_bytes, format="mp3")
+
+        chunks = _chunk_text(self.script_content)
+        segments: List[AudioSegment] = []
+
+        print(f"   -> Verarbeite {len(chunks)} Text-Abschnitte...")
+
+        for idx, chunk in enumerate(chunks):
+            max_attempts = 3
             try:
-                resp = client.models.generate_content(
-                    model=model_tts,
-                    contents=[content],
-                    config=cfg,
-                )
-                # Kandidaten auf verwertbare Inline-Audio-Daten prüfen
-                found = False
-                for cand_idx, cand in enumerate(resp.candidates or []):
-                    for part in cand.content.parts or []:
-                        try:
-                            seg = _part_to_segment(part, idx, cand_idx)
-                        except RuntimeError as e:
-                            print(f"   ⚠️ {e}")
-                            continue
+                # Versuch 1: Gemini TTS (Die beste Qualität)
+                for attempt in range(1, max_attempts + 1):
+                    try:
+                        seg = _generate_chunk_with_gemini(idx, chunk)
                         segments.append(seg)
-                        found = True
                         break
-                    if found:
-                        break
-                if not found:
-                    raise RuntimeError(f"Keine Audio-Daten im Response (Chunk {idx})")
-            except Exception as e:
-                print(f"   ❌ Fehler bei Chunk {idx}: {e}")
+                    except Exception as e:
+                        # Bei Rate Limit warten wir exponentiell länger
+                        if _is_rate_limit_error(e) and attempt < max_attempts:
+                            delay = 4 ** attempt # Aggressiveres Backoff (4s, 16s...)
+                            print(f"   ⚠️  Rate-Limit bei Chunk {idx} (Versuch {attempt}/{max_attempts}), warte {delay}s...")
+                            time.sleep(delay)
+                            continue
+                        # Wenn alle Versuche fehlschlagen, werfen wir den Fehler weiter
+                        if _is_rate_limit_error(e) and attempt == max_attempts:
+                            print("   ⚠️  Rate-Limit erschöpft, wechsle zu Google Cloud TTS Fallback...")
+                            raise e 
+                        print(f"   ❌ Fehler bei Chunk {idx}: {e}")
+                        raise
+                else:
+                    raise RuntimeError(f"Chunk {idx}: Unbekannter Fehler bei Gemini TTS")
+            except Exception as gem_err:
+                # Fallback: Google Cloud TTS (Die solide Qualität mit SSML Boost)
+                if _is_rate_limit_error(gem_err):
+                    try:
+                        print(f"      -> Nutze Cloud TTS mit SSML für Chunk {idx}...")
+                        seg = _generate_chunk_with_gcloud(idx, chunk)
+                        segments.append(seg)
+                        continue
+                    except Exception as gc_err:
+                        print(f"   ❌ Google Cloud TTS Fehler (Fallback) bei Chunk {idx}: {gc_err}")
+                        raise
                 raise
 
         if not segments:
@@ -445,7 +560,7 @@ class PodcastGenerator:
     # --------------------------------------------------------------------------
     # 7. METADATEN
     # --------------------------------------------------------------------------
-    def generate_metadata(self):
+    def generate_metadata(self, include_media: bool = True):
         print("📄 7. Metadaten...")
         transcription_output_path = os.path.join(
             OUTPUT_DIR, f"{self.topic.replace(' ', '_')}_transcription.txt"
@@ -454,16 +569,20 @@ class PodcastGenerator:
         with open(transcription_output_path, "w", encoding="utf-8") as f:
             f.write(self.script_content)
 
+        episode_title, episode_desc = self._generate_episode_metadata()
+
         meta = {
-            "title": f"{PODCAST_NAME}: {self.topic}",
-            "description": f"{SLOGAN}\n\n{self.script_content[:150]}...",
+            "title": episode_title or f"{PODCAST_NAME}: {self.topic}",
+            "description": episode_desc or f"{SLOGAN}\n\n{self.script_content[:150]}...",
+            "episode_title": episode_title,
+            "episode_description": episode_desc,
             "files": {
-                "audio": self.final_audio_path,
-                "video": self.final_video_path
+                "audio": self.final_audio_path if include_media else None,
+                "video": self.final_video_path if include_media else None,
             },
             "sources": self.sources,
             "transcript": self.script_content,
-            "transcript_file": transcription_output_path
+            "transcript_file": transcription_output_path,
         }
         with open(f"{OUTPUT_DIR}/{self.topic.replace(' ', '_')}_meta.json", "w", encoding="utf-8") as f:
             json.dump(meta, f, indent=4)

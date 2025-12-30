@@ -22,12 +22,12 @@ def _spell_out_abbreviations(text: str) -> str:
 
 def _strip_formatting(text: str) -> str:
     """
-    Entfernt Formatierungen; Sternchen werden entfernt (kein SSML-Emphasis nötig).
+    Entfernt Markdown-Formatierungen und Sternchen-Betonung.
     """
     text = re.sub(r"\[([^\]]+)\]\([^\)]+\)", r"\1", text)  # Markdown Link -> Text
     text = re.sub(r"\[\s*([^\]]+)\s*\]", r"\1", text)
     text = re.sub(r"\(\s*([^\)]+)\s*\)", r"\1", text)
-    text = text.replace("*", "")
+    text = re.sub(r"\*(.*?)\*", r"\1", text)
     return text
 
 
