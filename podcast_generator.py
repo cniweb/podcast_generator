@@ -140,7 +140,7 @@ class PodcastGenerator:
 
     def _generate_episode_metadata(self) -> tuple[str, str]:
         """Erstellt Titel und Beschreibung basierend auf dem Transkript."""
-        preferences = ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-pro-latest"]
+        preferences = ["gemini-3-pro-preview", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-pro-latest"]
         model_name = pick_available_model(preferences)
 
         prompt = (
@@ -240,7 +240,7 @@ class PodcastGenerator:
         13. Erwähne am Ende das die Zuhörer den Podcast gerene bewerten können und uns folgen sollen (Hashtag {PODCAST_NAME}).
         """
         
-        preferred = ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-pro-latest"]
+        preferred = ["gemini-3-pro-preview", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-pro-latest"]
         model_name = pick_available_model(preferred)
         print(f"   -> Verwende Modell: {model_name}")
 
