@@ -48,6 +48,9 @@ os.makedirs(ASSETS_DIR, exist_ok=True)
 # Client-Setup
 client = genai.Client(api_key=GEMINI_API_KEY)
 
+# Standard-Modell für Fallbacks
+DEFAULT_MODEL = "gemini-2.0-flash"
+
 
 def _to_ssml(text: str) -> str:
     """Baut SSML aus Klarschrift und wandelt *Wort* in <emphasis> um."""
@@ -84,8 +87,8 @@ def pick_available_model(preferences: List[str]) -> str:
     try:
         available = list(client.models.list())
     except Exception as e:
-        print(f"   ⚠️ Konnte Modelle nicht listen ({e}). Versuche Standard: gemini-2.0-flash")
-        return "gemini-2.0-flash"
+        print(f"   ⚠️ Konnte Modelle nicht listen ({e}). Versuche Standard: {DEFAULT_MODEL}")
+        return DEFAULT_MODEL
 
     blocked_tokens = ["embedding", "tts", "image", "imagen", "veo", "computer-use", "robotics", "aqa", "native-audio"]
 
@@ -105,7 +108,7 @@ def pick_available_model(preferences: List[str]) -> str:
         if "gemini" in short:
             return full
 
-    return "gemini-2.0-flash"
+    return DEFAULT_MODEL
 
 class PodcastGenerator:
     def __init__(self, topic):
@@ -129,7 +132,7 @@ class PodcastGenerator:
         )
         try:
             resp = client.models.generate_content(
-                model="gemini-2.0-flash",
+                model=DEFAULT_MODEL,
                 contents=prompt,
             )
             translated = (resp.text or "").strip().replace("\n", " ")
