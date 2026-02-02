@@ -9,7 +9,7 @@ ruff_version="0.6.8"
 if [[ ! -d .venv ]]; then
     $python_bin -m venv .venv
 fi
-source .venv/bin/activate
+source .venv/Scripts/activate
 
 # Optional: Setup erneut nutzen, falls Umgebungs- und FFmpeg-Checks gewünscht sind (benötigt .env)
 if [[ "${1:-}" == "--setup" ]]; then
