@@ -7,6 +7,8 @@ import io
 import math
 import mimetypes
 import time
+import xml.etree.ElementTree as ET
+import shutil
 from pytrends.request import TrendReq
 from google import genai
 from google.genai import types
@@ -50,6 +52,27 @@ client = genai.Client(api_key=GEMINI_API_KEY)
 
 # Standard-Modell für Fallbacks
 DEFAULT_MODEL = "gemini-2.0-flash"
+
+
+def _is_rate_limited_error(err: Exception | str) -> bool:
+    msg = str(err).lower()
+    return " 429" in msg or "code 429" in msg or "too many requests" in msg or "rate" in msg
+
+
+def _require_ffmpeg(tool_name: str) -> str:
+    """Prüft, ob ffmpeg/ffprobe verfügbar ist, sonst klarer Fehler."""
+    path = shutil.which(tool_name)
+    if not path:
+        raise RuntimeError(
+            f"{tool_name} nicht gefunden. Bitte ffmpeg installieren und zum PATH hinzufügen."
+        )
+    return path
+
+
+def _ensure_audio_tools():
+    """Vorab-Check für pydub-Tools."""
+    _require_ffmpeg("ffmpeg")
+    _require_ffmpeg("ffprobe")
 
 
 def _to_ssml(text: str) -> str:
@@ -143,7 +166,7 @@ class PodcastGenerator:
 
     def _generate_episode_metadata(self) -> tuple[str, str]:
         """Erstellt Titel und Beschreibung basierend auf dem Transkript."""
-        preferences = ["gemini-3-pro-preview", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-pro-latest"]
+        preferences = ["gemini-3-pro-preview", "gemini-2.5-pro", "gemini-2.5-flash", DEFAULT_MODEL, "gemini-pro-latest"]
         model_name = pick_available_model(preferences)
 
         prompt = (
@@ -209,7 +232,10 @@ class PodcastGenerator:
             else:
                 print("   -> Keine spezifischen Trends, nutze Ursprungsthema.")
         except Exception as e:
-            print(f"   ⚠️ Trend-Fehler (nutze Fallback): {e}")
+            if _is_rate_limited_error(e):
+                print("   ⚠️ Trend-Fehler (429). Überspringe Trends-Optimierung.")
+            else:
+                print(f"   ⚠️ Trend-Fehler (nutze Fallback): {e}")
         return self.topic
 
     # --------------------------------------------------------------------------
@@ -243,7 +269,7 @@ class PodcastGenerator:
         13. Erwähne am Ende das die Zuhörer den Podcast gerene bewerten können und uns folgen sollen (Hashtag {PODCAST_NAME}).
         """
         
-        preferred = ["gemini-3-pro-preview", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-pro-latest"]
+        preferred = ["gemini-3-pro-preview", "gemini-2.5-pro", "gemini-2.5-flash", DEFAULT_MODEL, "gemini-pro-latest"]
         model_name = pick_available_model(preferred)
         print(f"   -> Verwende Modell: {model_name}")
 
@@ -343,152 +369,16 @@ class PodcastGenerator:
         """Konvertiert das Skript in Audio: Gemini TTS mit Rate-Limit-Fallback zu Cloud TTS."""
         print("🗣️  4. Generiere Stimme (Gemini TTS, Fallback Google Cloud TTS + SSML)...")
 
+        _ensure_audio_tools()
+
         model_tts = "gemini-2.5-pro-preview-tts"
         voice_name = "umbriel"
         print(f"   -> Verwende TTS-Modell: {model_tts} (Stimme: {voice_name})")
 
-        def _is_rate_limit_error(exc: Exception) -> bool:
-            msg = str(exc).lower()
-            return "429" in msg or "rate" in msg or "resource_exhausted" in msg
-
-        def _part_to_segment(part: types.Part, chunk_idx: int, cand_idx: int) -> AudioSegment:
-            if not part.inline_data or not part.inline_data.data:
-                raise RuntimeError(f"Chunk {chunk_idx}: Leere Audio-Teilantwort")
-            data = part.inline_data.data
-            mime = part.inline_data.mime_type or "audio/wav"
-            if not mime.startswith("audio/"):
-                raise RuntimeError(f"Chunk {chunk_idx}: Kein Audio (mime={mime}, cand={cand_idx})")
-
-            if "L16" in mime or "pcm" in mime:
-                try:
-                    return AudioSegment.from_raw(
-                        io.BytesIO(data),
-                        sample_width=2,
-                        frame_rate=24000,
-                        channels=1,
-                    )
-                except Exception as e:
-                    raise RuntimeError(
-                        f"Chunk {chunk_idx}: PCM-Dekodierung fehlgeschlagen (mime={mime}, len={len(data)}, cand={cand_idx}): {e}"
-                    )
-
-            fmt = "wav"
-            if "mp3" in mime:
-                fmt = "mp3"
-            elif "wav" in mime:
-                fmt = "wav"
-            elif "ogg" in mime:
-                fmt = "ogg"
-            else:
-                guess = mimetypes.guess_extension(mime)
-                if guess:
-                    fmt = guess.lstrip(".")
-            try:
-                return AudioSegment.from_file(io.BytesIO(data), format=fmt)
-            except Exception as e:
-                raise RuntimeError(
-                    f"Chunk {chunk_idx}: Audio-Dekodierung fehlgeschlagen (mime={mime}, len={len(data)}, cand={cand_idx}): {e}"
-                )
-
-        def _generate_chunk_with_gemini(chunk_idx: int, chunk_text: str) -> AudioSegment:
-            content = types.Content(
-                role="user",
-                parts=[types.Part.from_text(text=chunk_text)]
-            )
-
-            cfg = types.GenerateContentConfig(
-                temperature=1,
-                response_modalities=["audio"],
-                speech_config=types.SpeechConfig(
-                    voice_config=types.VoiceConfig(
-                        prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=voice_name)
-                    )
-                ),
-            )
-
-            resp = client.models.generate_content(
-                model=model_tts,
-                contents=[content],
-                config=cfg,
-            )
-            for cand_idx, cand in enumerate(resp.candidates or []):
-                for part in cand.content.parts or []:
-                    try:
-                        return _part_to_segment(part, chunk_idx, cand_idx)
-                    except RuntimeError as e:
-                        print(f"   ⚠️ {e}")
-                        continue
-            raise RuntimeError(f"Keine Audio-Daten im Response (Chunk {chunk_idx}, Modell {model_tts})")
-
-        def _generate_chunk_with_gcloud(chunk_idx: int, chunk_text: str) -> AudioSegment:
-            tts_client = texttospeech.TextToSpeechClient()
-            # Wir nutzen "de-DE-Polyglot-1" oder "Studio-B". Polyglot ist oft moderner.
-            voice_params = texttospeech.VoiceSelectionParams(
-                language_code="de-DE",
-                name="de-DE-Polyglot-1", # Versuche Polyglot, sonst Studio-B
-            )
-            audio_config = texttospeech.AudioConfig(
-                audio_encoding=texttospeech.AudioEncoding.MP3,
-                speaking_rate=1.05, # Leicht schneller für mehr Energie
-                pitch=0.0,
-            )
-            
-            # WICHTIG: SSML generieren mit Betonungen!
-            ssml_text = _to_ssml(chunk_text)
-            
-            synthesis_input = texttospeech.SynthesisInput(ssml=ssml_text)
-            response = tts_client.synthesize_speech(
-                input=synthesis_input,
-                voice=voice_params,
-                audio_config=audio_config,
-            )
-            if not response.audio_content:
-                raise RuntimeError(f"Chunk {chunk_idx}: Leere Audio-Antwort von Google Cloud TTS")
-            audio_bytes = io.BytesIO(response.audio_content)
-            return AudioSegment.from_file(audio_bytes, format="mp3")
-
-        # Aufteilen, damit TTS-Grenzen sicher eingehalten werden
         chunks = _chunk_text(self.script_content)
-        segments: List[AudioSegment] = []
-
         print(f"   -> Verarbeite {len(chunks)} Text-Abschnitte...")
 
-        for idx, chunk in enumerate(chunks):
-            max_attempts = 3
-            try:
-                # Versuch 1: Gemini TTS (beste Qualität)
-                for attempt in range(1, max_attempts + 1):
-                    try:
-                        seg = _generate_chunk_with_gemini(idx, chunk)
-                        segments.append(seg)
-                        break
-                    except Exception as e:
-                        # Bei Rate-Limit exponentiell warten
-                        if _is_rate_limit_error(e) and attempt < max_attempts:
-                            delay = 4 ** attempt # Aggressiveres Backoff (4s, 16s...)
-                            print(f"   ⚠️  Rate-Limit bei Chunk {idx} (Versuch {attempt}/{max_attempts}), warte {delay}s...")
-                            time.sleep(delay)
-                            continue
-                        # Wenn alle Versuche fehlschlagen, Fehler weiterreichen
-                        if _is_rate_limit_error(e) and attempt == max_attempts:
-                            print("   ⚠️  Rate-Limit erschöpft, wechsle zu Google Cloud TTS Fallback...")
-                            raise e 
-                        print(f"   ❌ Fehler bei Chunk {idx}: {e}")
-                        raise
-                else:
-                    raise RuntimeError(f"Chunk {idx}: Unbekannter Fehler bei Gemini TTS")
-            except Exception as gem_err:
-                # Fallback: Google Cloud TTS (solide Qualität mit SSML-Boost)
-                if _is_rate_limit_error(gem_err):
-                    try:
-                        print(f"      -> Nutze Cloud TTS mit SSML für Chunk {idx}...")
-                        seg = _generate_chunk_with_gcloud(idx, chunk)
-                        segments.append(seg)
-                        continue
-                    except Exception as gc_err:
-                        print(f"   ❌ Google Cloud TTS Fehler (Fallback) bei Chunk {idx}: {gc_err}")
-                        raise
-                raise
+        segments = self._tts_segments(chunks, model_tts, voice_name)
 
         if not segments:
             raise RuntimeError("TTS lieferte keine Segmente.")
@@ -500,6 +390,138 @@ class PodcastGenerator:
         self.audio_voice_path = f"{TEMP_DIR}/voice_raw.mp3"
         final_voice.export(self.audio_voice_path, format="mp3")
         print("   -> Sprachdatei erstellt.")
+
+    def _is_rate_limit_error(self, exc: Exception) -> bool:
+        msg = str(exc).lower()
+        return "429" in msg or "rate" in msg or "resource_exhausted" in msg
+
+    def _part_to_segment(self, part: types.Part, chunk_idx: int, cand_idx: int) -> AudioSegment:
+        if not part.inline_data or not part.inline_data.data:
+            raise RuntimeError(f"Chunk {chunk_idx}: Leere Audio-Teilantwort")
+        data = part.inline_data.data
+        mime = part.inline_data.mime_type or "audio/wav"
+        if not mime.startswith("audio/"):
+            raise RuntimeError(f"Chunk {chunk_idx}: Kein Audio (mime={mime}, cand={cand_idx})")
+
+        if "L16" in mime or "pcm" in mime:
+            try:
+                return AudioSegment.from_raw(
+                    io.BytesIO(data),
+                    sample_width=2,
+                    frame_rate=24000,
+                    channels=1,
+                )
+            except Exception as e:
+                raise RuntimeError(
+                    f"Chunk {chunk_idx}: PCM-Dekodierung fehlgeschlagen (mime={mime}, len={len(data)}, cand={cand_idx}): {e}"
+                )
+
+        fmt = "wav"
+        if "mp3" in mime:
+            fmt = "mp3"
+        elif "wav" in mime:
+            fmt = "wav"
+        elif "ogg" in mime:
+            fmt = "ogg"
+        else:
+            guess = mimetypes.guess_extension(mime)
+            if guess:
+                fmt = guess.lstrip(".")
+        try:
+            return AudioSegment.from_file(io.BytesIO(data), format=fmt)
+        except Exception as e:
+            raise RuntimeError(
+                f"Chunk {chunk_idx}: Audio-Dekodierung fehlgeschlagen (mime={mime}, len={len(data)}, cand={cand_idx}): {e}"
+            )
+
+    def _generate_chunk_with_gemini(self, chunk_idx: int, chunk_text: str, model_tts: str, voice_name: str) -> AudioSegment:
+        content = types.Content(
+            role="user",
+            parts=[types.Part.from_text(text=chunk_text)]
+        )
+
+        cfg = types.GenerateContentConfig(
+            temperature=1,
+            response_modalities=["audio"],
+            speech_config=types.SpeechConfig(
+                voice_config=types.VoiceConfig(
+                    prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=voice_name)
+                )
+            ),
+        )
+
+        resp = client.models.generate_content(
+            model=model_tts,
+            contents=[content],
+            config=cfg,
+        )
+        for cand_idx, cand in enumerate(resp.candidates or []):
+            for part in cand.content.parts or []:
+                try:
+                    return self._part_to_segment(part, chunk_idx, cand_idx)
+                except RuntimeError as e:
+                    print(f"   ⚠️ {e}")
+                    continue
+        raise RuntimeError(f"Keine Audio-Daten im Response (Chunk {chunk_idx}, Modell {model_tts})")
+
+    def _generate_chunk_with_gcloud(self, chunk_idx: int, chunk_text: str) -> AudioSegment:
+        tts_client = texttospeech.TextToSpeechClient()
+        voice_params = texttospeech.VoiceSelectionParams(
+            language_code="de-DE",
+            name="de-DE-Polyglot-1",
+        )
+        audio_config = texttospeech.AudioConfig(
+            audio_encoding=texttospeech.AudioEncoding.MP3,
+            speaking_rate=1.05,
+            pitch=0.0,
+        )
+        ssml_text = _to_ssml(chunk_text)
+        synthesis_input = texttospeech.SynthesisInput(ssml=ssml_text)
+        response = tts_client.synthesize_speech(
+            input=synthesis_input,
+            voice=voice_params,
+            audio_config=audio_config,
+        )
+        if not response.audio_content:
+            raise RuntimeError(f"Chunk {chunk_idx}: Leere Audio-Antwort von Google Cloud TTS")
+        audio_bytes = io.BytesIO(response.audio_content)
+        return AudioSegment.from_file(audio_bytes, format="mp3")
+
+    def _process_chunk(self, idx, chunk, model_tts, voice_name, max_attempts=3):
+        for attempt in range(1, max_attempts + 1):
+            try:
+                return self._generate_chunk_with_gemini(idx, chunk, model_tts, voice_name)
+            except Exception as e:
+                if self._is_rate_limit_error(e) and attempt < max_attempts:
+                    delay = 4 ** attempt
+                    print(f"   ⚠️  Rate-Limit bei Chunk {idx} (Versuch {attempt}/{max_attempts}), warte {delay}s...")
+                    time.sleep(delay)
+                    continue
+                if self._is_rate_limit_error(e) and attempt == max_attempts:
+                    print("   ⚠️  Rate-Limit erschöpft, wechsle zu Google Cloud TTS Fallback...")
+                    raise e
+                print(f"   ❌ Fehler bei Chunk {idx}: {e}")
+                raise
+        raise RuntimeError(f"Chunk {idx}: Unbekannter Fehler bei Gemini TTS")
+
+    def _tts_segments(self, chunks, model_tts, voice_name):
+        segments = []
+        for idx, chunk in enumerate(chunks):
+            try:
+                seg = self._process_chunk(idx, chunk, model_tts, voice_name)
+                segments.append(seg)
+            except Exception as gem_err:
+                if self._is_rate_limit_error(gem_err):
+                    try:
+                        print(f"      -> Nutze Cloud TTS mit SSML für Chunk {idx}...")
+                        seg = self._generate_chunk_with_gcloud(idx, chunk)
+                        segments.append(seg)
+                        continue
+                    except Exception as gc_err:
+                        print(f"   ❌ Google Cloud TTS Fehler (Fallback) bei Chunk {idx}: {gc_err}")
+                        raise
+                raise
+        return segments
 
     # --------------------------------------------------------------------------
     # 5. MIXING
@@ -602,11 +624,124 @@ class PodcastGenerator:
             json.dump(meta, f, ensure_ascii=False, indent=4)
         print("   -> Fertig.")
 
+def _pick_realtime_title(df_rt):
+    """Liest den bestmöglichen Titel aus realtime_trending_searches."""
+    if df_rt is None or df_rt.empty:
+        return None
+    row0 = df_rt.iloc[0]
+    if "title" in df_rt.columns:
+        t = row0.get("title")
+        if isinstance(t, list) and t:
+            return t[0]
+        if isinstance(t, str) and t.strip():
+            return t.strip()
+    if "entityNames" in df_rt.columns:
+        names = row0.get("entityNames")
+        if isinstance(names, list) and names:
+            return names[0]
+    return None
+
+
+def _search_dailytrends(pytrends, country_code, debug_today):
+    """Sucht Trends über today_searches für ein Land."""
+    try:
+        df = pytrends.today_searches(pn=country_code)
+        if df is not None:
+            debug_today[country_code] = df.head().to_string(index=False)
+        if df is not None and not df.empty:
+            return df.iloc[0]
+    except Exception as err:
+        if _is_rate_limited_error(err):
+            debug_today[country_code] = "dailytrends Fehler: 429"
+        else:
+            debug_today[country_code] = f"dailytrends Fehler: {err}"
+    return None
+
+
+def _search_realtime(pytrends, country_code, debug_today):
+    """Sucht Trends über realtime_trending_searches für ein Land."""
+    try:
+        df_rt = pytrends.realtime_trending_searches(pn=country_code, count=50)
+        if df_rt is not None:
+            debug_today[f"{country_code}-realtime"] = df_rt.head().to_string(index=False)
+        pick = _pick_realtime_title(df_rt)
+        if pick:
+            return pick
+    except Exception as err:
+        if _is_rate_limited_error(err):
+            debug_today[f"{country_code}-realtime"] = "realtime Fehler: 429"
+        else:
+            debug_today[f"{country_code}-realtime"] = f"realtime Fehler: {err}"
+    return None
+
+
+def _search_legacy(pytrends, country_code, debug_today):
+    """Sucht Trends über trending_searches (Legacy)."""
+    try:
+        pn_map = {
+            'DE': 'germany',
+            'AT': 'austria',
+            'CH': 'switzerland',
+        }
+        pn_val = pn_map.get(country_code, 'germany')
+        df_legacy = pytrends.trending_searches(pn=pn_val)
+        if df_legacy is not None:
+            debug_today[f"{country_code}-legacy"] = df_legacy.head().to_string(index=False)
+        if df_legacy is not None and not df_legacy.empty:
+            return df_legacy.iloc[0, 0]
+    except Exception as err:
+        if _is_rate_limited_error(err):
+            debug_today[f"{country_code}-legacy"] = "legacy Fehler: 429"
+        else:
+            debug_today[f"{country_code}-legacy"] = f"legacy Fehler: {err}"
+    return None
+
+
+def _search_rss(country_code, debug_today):
+    """Sucht Trends über das öffentliche Google Trends RSS-Feed (Fallback bei 404)."""
+    geo = country_code.upper() if country_code else "DE"
+    url = f"https://trends.google.com/trends/trendingsearches/daily/rss?geo={geo}"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36"
+    }
+    try:
+        resp = requests.get(url, headers=headers, timeout=10)
+        if resp.status_code != 200:
+            debug_today[f"{geo}-rss"] = f"rss Fehler: HTTP {resp.status_code}"
+            return None
+        root = ET.fromstring(resp.text)
+        items = root.findall("./channel/item/title")
+        if not items:
+            debug_today[f"{geo}-rss"] = "rss Fehler: Keine Items"
+            return None
+        top = items[0].text.strip() if items[0].text else None
+        debug_today[f"{geo}-rss"] = top or "rss Fehler: Leerer Titel"
+        return top
+    except Exception as err:
+        debug_today[f"{geo}-rss"] = f"rss Fehler: {err}"
+        return None
+
+
+def _try_today(pytrends, country_code: str, debug_today):
+    """Versucht verschiedene Trend-Suchstrategien für ein Land."""
+    for search_func in (_search_dailytrends, _search_realtime, _search_legacy):
+        result = search_func(pytrends, country_code, debug_today)
+        if result:
+            return result
+    # RSS-Fallback (wenn pytrends 404 liefert)
+    # Bei 429 hilft RSS oft sofort; wenn RSS auch limitiert, gib None zurück.
+    result = _search_rss(country_code, debug_today)
+    if result:
+        return result
+    return None
+
+
 # ==============================================================================
 # HAUPTPROGRAMM
 # ==============================================================================
 if __name__ == "__main__":
     print(f"--- {PODCAST_NAME.upper()} AUTOMATISIERUNG ---")
+    _ensure_audio_tools()
     topic = input("Thema (Lass leer für aktuellen Top-Trend): ").strip()
 
     if not topic:
@@ -615,72 +750,17 @@ if __name__ == "__main__":
             pytrends = TrendReq(hl='de', tz=120)
             debug_today = {}
 
-            def _try_today(country_code: str):
-                # Versuche dailytrends, dann realtime, dann legacy trending_searches
-                def _pick_realtime(df_rt):
-                    if df_rt is None or df_rt.empty:
-                        return None
-                    row0 = df_rt.iloc[0]
-                    title = None
-                    if "title" in df_rt.columns:
-                        t = row0.get("title")
-                        if isinstance(t, list) and t:
-                            title = t[0]
-                        elif isinstance(t, str) and t.strip():
-                            title = t.strip()
-                    if not title and "entityNames" in df_rt.columns:
-                        names = row0.get("entityNames")
-                        if isinstance(names, list) and names:
-                            title = names[0]
-                    return title
-
-                try:
-                    df = pytrends.today_searches(pn=country_code)
-                    if df is not None:
-                        debug_today[country_code] = df.head().to_string(index=False)
-                    if df is not None and not df.empty:
-                        return df.iloc[0]
-                except Exception as err:
-                    debug_today[country_code] = f"dailytrends Fehler: {err}"
-
-                try:
-                    df_rt = pytrends.realtime_trending_searches(pn=country_code, count=50)
-                    if df_rt is not None:
-                        debug_today[f"{country_code}-realtime"] = df_rt.head().to_string(index=False)
-                    pick = _pick_realtime(df_rt)
-                    if pick:
-                        return pick
-                except Exception as err:
-                    debug_today[f"{country_code}-realtime"] = f"realtime Fehler: {err}"
-
-                try:
-                    pn_map = {
-                        'DE': 'germany',
-                        'AT': 'austria',
-                        'CH': 'switzerland',
-                    }
-                    pn_val = pn_map.get(country_code, 'germany')
-                    df_legacy = pytrends.trending_searches(pn=pn_val)
-                    if df_legacy is not None:
-                        debug_today[f"{country_code}-legacy"] = df_legacy.head().to_string(index=False)
-                    if df_legacy is not None and not df_legacy.empty:
-                        return df_legacy.iloc[0, 0]
-                except Exception as err:
-                    debug_today[f"{country_code}-legacy"] = f"legacy Fehler: {err}"
-
-                return None
-
             trend_topic = (
-                _try_today('DE')
-                or _try_today('AT')
-                or _try_today('CH')
+                _try_today(pytrends, 'DE', debug_today)
+                or _try_today(pytrends, 'AT', debug_today)
+                or _try_today(pytrends, 'CH', debug_today)
             )
 
             if trend_topic:
                 topic = trend_topic
                 print(f"📈 Top-Trend gefunden: '{topic}'")
             else:
-                print("   ⚠️ Keine Trends gefunden. Nutze Fallback.")
+                print("   ⚠️  Keine Trends gefunden. Nutze Fallback.")
                 for code, dbg in debug_today.items():
                     print(f"   🔎 today_searches {code}: {dbg}")
                 topic = "Künstliche Intelligenz"
