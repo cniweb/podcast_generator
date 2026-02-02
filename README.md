@@ -41,7 +41,7 @@ FREESOUND_API_KEY=dein_freesound_key
 GOOGLE_APPLICATION_CREDENTIALS=google_cloud_credentials.json
 
 PODCAST_NAME="Mein Podcast"
-PODCAST_SLOGAN="Alles, was man sissen muss..."
+PODCAST_SLOGAN="Alles, was man wissen muss..."
 PODCAST_TEMP_DIR=temp_assets
 PODCAST_OUTPUT_DIR=finished_episodes
 PODCAST_ASSETS_DIR=assets
