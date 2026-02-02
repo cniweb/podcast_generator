@@ -1,5 +1,17 @@
 # Podcast Generator
 
+## Schnellstart (für neue Nutzer)
+
+1. Voraussetzungen prüfen
+   - Python 3.12+ und ffmpeg im PATH
+2. Setup ausführen
+   - `./setup.sh`
+3. Podcast erzeugen
+   - `./run.sh "Dein Thema"`
+   - leer lassen, um Trends automatisch zu verwenden
+
+Ausgaben findest du in `PODCAST_OUTPUT_DIR` (Audio, Video, Transkript und Metadaten).
+
 ## Zweck
 
 - Erstellt automatisch kurze Wissens-Podcasts (Audio + optionales Standbild-Video) mit Skript, TTS-Voice, Hintergrundmusik und Metadaten.
@@ -29,8 +41,8 @@
 
 ## Voraussetzungen
 
-- macOS/Linux mit `ffmpeg` im PATH.
-- Python 3.12+ empfohlen (wegen audioop); venv wird von `run.sh`/`setup.sh` angelegt.
+- ffmpeg im PATH (Windows/macOS/Linux)
+- Python 3.12+ empfohlen (wegen audioop); venv wird von `run.sh`/`setup.sh` angelegt
 - `.env` mit allen Pflichtwerten.
 
 ## .env Beispiel (alle Pflichtfelder)
@@ -71,8 +83,36 @@ Ausgaben:
 ## Fehlerbehebung
 
 - Fehler "Environment variable ... is required": .env prüfen und Wert setzen.
-- ffmpeg nicht gefunden: `brew install ffmpeg` (macOS) oder `apt-get install ffmpeg` (Linux) oder `setup.sh` erneut ausführen.
+- ffmpeg nicht gefunden: ffmpeg installieren und PATH prüfen, danach `setup.sh` erneut ausführen
 - Audioop fehlt: `run.sh` installiert `audioop-lts` über requirements; sicherstellen, dass Python 3.12+ genutzt wird.
+
+## Entwickler-Onboarding (Contributor)
+
+### Repository vorbereiten
+
+1. Abhängigkeiten installieren
+   - `./setup.sh` (legt venv an, installiert Requirements)
+2. Tests ausführen
+   - `./ci.sh`
+
+### Wichtige Ordner
+
+- `assets/` – Cover und optionale Hintergrundloops
+- `temp_assets/` – temporäre Arbeitsdateien (wird bei Runs genutzt)
+- `finished_episodes/` – finale Outputs
+- `tests/` – Unit-Tests
+
+### Entwicklungs-Workflow
+
+- Kleine, gezielte Änderungen bevorzugen
+- Keine Secrets in Code/Logs schreiben
+- Keine Regie-/Sound-Anweisungen ins Skript
+
+### Häufige Stolpersteine
+
+- ffmpeg/ffprobe fehlt → Audio-Export schlägt fehl
+- pytrends 404/429 → RSS-Fallback nutzen (bereits implementiert)
+- Google Cloud TTS benötigt gültige `GOOGLE_APPLICATION_CREDENTIALS`
 
 ## Hinweise für Agents / Copilot
 
