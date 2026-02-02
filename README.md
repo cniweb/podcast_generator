@@ -3,14 +3,20 @@
 ## Schnellstart (für neue Nutzer)
 
 1. Voraussetzungen prüfen
-   - Python 3.12+ und ffmpeg im PATH
+   - Python 3.12+ und ffmpeg (inkl. ffprobe) im PATH
 2. Setup ausführen
    - `./setup.sh`
 3. Podcast erzeugen
    - `./run.sh "Dein Thema"`
    - leer lassen, um Trends automatisch zu verwenden
 
-Ausgaben findest du in `PODCAST_OUTPUT_DIR` (Audio, Video, Transkript und Metadaten).
+Ausgaben findest du in `PODCAST_OUTPUT_DIR` (Audio, optional Video, Transkript und Metadaten).
+
+Hinweis für Windows
+
+- `run.sh`/`setup.sh` am besten in Git Bash oder WSL ausführen
+- ffmpeg manuell installieren und PATH setzen
+- alternativ `podcast_generator.py` direkt mit Python starten
 
 ## Zweck
 
@@ -41,7 +47,7 @@ Ausgaben findest du in `PODCAST_OUTPUT_DIR` (Audio, Video, Transkript und Metada
 
 ## Voraussetzungen
 
-- ffmpeg im PATH (Windows/macOS/Linux)
+- ffmpeg inkl. ffprobe im PATH (Windows/macOS/Linux)
 - Python 3.12+ empfohlen (wegen audioop); venv wird von `run.sh`/`setup.sh` angelegt
 - `.env` mit allen Pflichtwerten.
 
@@ -63,8 +69,14 @@ PODCAST_ASSETS_DIR=assets
 
 ```bash
 chmod +x run.sh setup.sh
-./setup.sh           # einmalig, prüft .env/ffmpeg/requirements
-./run.sh "Regieassistenz im Theater"  # erzeugt Audio/Video/Metadaten
+./setup.sh                            # einmalig, prüft .env/ffmpeg/requirements
+./run.sh "Regieassistenz im Theater"  # erzeugt Audio/Video/Transkript/Metadaten
+```
+
+Windows (PowerShell, ohne Bash):
+
+```powershell
+python .\podcast_generator.py
 ```
 
 Ausgaben:
@@ -106,6 +118,7 @@ Ausgaben:
 
 - Kleine, gezielte Änderungen bevorzugen
 - Keine Secrets in Code/Logs schreiben
+- Pfade unter `PODCAST_*` beibehalten
 - Keine Regie-/Sound-Anweisungen ins Skript
 
 ### Häufige Stolpersteine
