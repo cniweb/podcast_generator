@@ -12,7 +12,7 @@
 
 Ausgaben findest du in `PODCAST_OUTPUT_DIR` (Audio, optional Video, Transkript und Metadaten).
 
-Hinweis für Windows
+## Hinweis für Windows
 
 - `run.sh`/`setup.sh` am besten in Git Bash oder WSL ausführen
 - ffmpeg manuell installieren und PATH setzen
@@ -88,15 +88,15 @@ Ausgaben:
 
 ## Konfiguration
 
-- Stimme anpassen in [podcast_generator.py](podcast_generator.py) via `voice_name` (unter "3. STIMME").
+- Stimme anpassen in [podcast_generator.py](podcast_generator.py) via `voice_name` (unter `3. STIMME`).
 - Cover-Bild: `assets/cover.png` oder `assets/cover.jpg`.
 - Musik-Query-Fallbacks: zuerst themenbezogen, dann „lofi study loop“, sonst Stille.
 
 ## Fehlerbehebung
 
-- Fehler "Environment variable ... is required": .env prüfen und Wert setzen.
-- ffmpeg nicht gefunden: ffmpeg installieren und PATH prüfen, danach `setup.sh` erneut ausführen
-- Audioop fehlt: `run.sh` installiert `audioop-lts` über requirements; sicherstellen, dass Python 3.12+ genutzt wird.
+- Fehler `Environment variable ... is required`: .env prüfen und Wert setzen.
+- ffmpeg nicht gefunden: ffmpeg installieren und PATH prüfen, danach `setup.sh` erneut ausführen.
+- `audioop` fehlt: `run.sh` installiert `audioop-lts` über requirements; sicherstellen, dass Python 3.12+ genutzt wird.
 
 ## Entwickler-Onboarding (Contributor)
 
