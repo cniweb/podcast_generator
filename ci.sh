@@ -47,4 +47,7 @@ $python_bin -m compileall podcast_generator.py
 # Tests
 $python_bin -m pytest -q
 
+# Markdown lint
+$python_bin -m pymarkdown scan .
+
 echo "All checks passed."

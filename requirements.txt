@@ -6,3 +6,4 @@ requests
 audioop-lts
 python-dotenv
 pytest
+pymarkdownlnt
