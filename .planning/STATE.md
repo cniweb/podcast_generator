@@ -34,6 +34,7 @@ Progress: [░░░░░░░░░░] 0%
 - Trend: -
 
 *Updated after each plan completion*
+| Phase 01-script-generation P01 | 0 min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
