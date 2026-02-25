@@ -90,12 +90,20 @@ if [ -f "setup.sh" ]; then
     ./setup.sh
     if [ $? -ne 0 ]; then
         echo -e "${RED}Setup fehlgeschlagen. Breche ab.${NC}"
-        deactivate
+        if command -v deactivate >/dev/null 2>&1; then
+            deactivate
+        fi
         exit 1
     fi
 else
     echo -e "${RED}Warnung: setup.sh nicht gefunden. Versuche manuelle Installation...${NC}"
-    pip install -r requirements.txt || { echo -e "${RED}pip install fehlgeschlagen.${NC}"; deactivate; exit 1; }
+    pip install -r requirements.txt || {
+        echo -e "${RED}pip install fehlgeschlagen.${NC}"
+        if command -v deactivate >/dev/null 2>&1; then
+            deactivate
+        fi
+        exit 1
+    }
 fi
 
 # 6. PROGRAMM STARTEN
@@ -106,4 +114,6 @@ echo "------------------------------------------------"
 echo "$TOPIC" | python3 "$SCRIPT_FILE"
 
 # Deaktivieren (optional, da Skript hier endet)
-deactivate
+if command -v deactivate >/dev/null 2>&1; then
+    deactivate
+fi
