@@ -58,7 +58,7 @@ client = genai.Client(api_key=GEMINI_API_KEY)
 # Standard-Modell für Fallbacks
 DEFAULT_MODEL = "gemini-2.0-flash"
 
-# Skript-Constraints (SCRIPT-01/02)
+# Skript-Constraints
 SCRIPT_TARGET_WORDS = 700
 SCRIPT_MIN_WORDS = 650
 SCRIPT_MAX_WORDS = 800
@@ -257,46 +257,33 @@ class PodcastGenerator:
         """Lässt Gemini ein Podcast-Skript erstellen und säubert Formatierungen."""
         print(f"✍️ 2. Gemini schreibt das Skript über '{self.topic}'...")
 
-        # Prompt optimiert für SSML Betonung
-        prompt = f"""
-        Du bist der Host des Podcasts '{PODCAST_NAME}'. Slogan: '{SLOGAN}'.
-        Schreibe ein Skript für eine Audio-Aufnahme über das Thema: '{self.topic}'.
-        
-        Vorgaben:
-        1. Rolle: Du bist ein charismatischer Wissens-Erklärer (ca. 30 Jahre alt). Dein Stil ist locker, aber kompetent. Du nutzt "Ich" und "Du".
-        2. Betonung: Wenn du ein Wort besonders betonen willst (für Dramatik oder Wichtigkeit), setze es in *Sternchen*. Beispiel: "Das ist *wirklich* unglaublich." (Nutze das sparsam, aber gezielt).
-        3. Struktur:
-           - Knackiges Intro (Begrüßung + Slogan).
-           - 3 faszinierende Fakten (Deep Dive).
-           - Kurzes, warmes Outro.
-        4. Formatierung: Reiner Sprechtext. Keine Regieanweisungen oder Bühnenanweisungen (kein "Lacht", "Musik", "Sound", "Jingle", "Atmos", "Beat", "faded" etc.), keine Labels oder Überschriften wie "Sprechtext" oder "---", keine Trennerlinien, kein Text vor dem eigentlichen gesprochenen Einstieg.
-        5. Länge: Ca. {SCRIPT_TARGET_WORDS} Wörter.
-        6. Metadaten: Am Ende eine Zeile: "QUELLEN: url1; url2; url3".
-        7. Sprache: Deutsch
-        8. Vermeide Aufzählungen oder nummerierte Listen im gesprochenen Text.
-        9. Nutze Absätze für natürliche Pausen (2 Zeilenumbrüche).
-        10. Vermeide Fachjargon; erkläre komplexe Begriffe einfach.
-        11. Vermeide Wiederholungen und Füllwörter.
-        12. Schreibe so, dass es sich natürlich anhört, wenn es vorgelesen wird (kurze Sätze!).
-        13. Erwähne am Ende das die Zuhörer den Podcast gerene bewerten können und uns folgen sollen (Hashtag {PODCAST_NAME}).
-        """
+        # Prompt mit extremer Fokus auf Wortanzahl-Limits
+        prompt = f"""Du bist Podcast-Host von '{PODCAST_NAME}'. Slogan: '{SLOGAN}'.
+Schreibe ein Podcast-Skript zum Thema '{self.topic}'.
+
+ABSOLUT STRIKTE REGELN (NICHT BREAKBAR):
+1. WORTANZAHL: {SCRIPT_MIN_WORDS}-{SCRIPT_MAX_WORDS} WÖRTER! Zähle sorgfältig! KEINE AUSNAHME!
+2. STRUKTUR: GENAU 5 ABSÄTZE (Doppel-Zeilenumbruch trennt sie)
+   • Absatz 1: Intro (20-30 Wörter)
+   • Absätze 2-4: Je ein Fakt (80-120 Wörter pro Absatz)
+   • Absatz 5: Outro mit #Hashtag (20-30 Wörter)
+3. STIL: Kurze Sätze. Du/Ich. Locker aber kompetent.
+4. KEINE: Labels, Überschriften, Musik/Sound/Jingle, Aufzählungen, unnötige Wiederholungen
+5. BETONUNG: *Wort* für Emphasis (sparsam!)
+6. ENDE: Neue Zeile: QUELLEN: url1; url2; url3
+
+SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
 
         fixup_prompt = (
-            "Du bist der Host des Podcasts '{name}'. Slogan: '{slogan}'. "
-            "Überarbeite das bestehende Skript zum Thema '{topic}'. "
-            "Gib ausschließlich den finalen Sprechtext zurück, ohne Labels oder Erklärungen. "
-            "Halte strikt diese Regeln ein:\n"
-            "- Reiner Sprechtext, keine Überschriften, Labels, Trennerlinien oder Listen.\n"
-            "- Keine Bühnenanweisungen (z. B. Musik, Jingle, Sound, Atmos, Beat, Lacht, faded).\n"
-            "- Struktur: Intro + 3 Fakten + Outro, mindestens 5 Absätze.\n"
-            "- Wortanzahl zwischen {min_words} und {max_words}.\n"
-            "- Am Ende eine Zeile: QUELLEN: url1; url2; url3\n"
-            "- Sprache: Deutsch\n\n"
-            "Vorheriger Entwurf:\n{draft}"
+            "Podcast-Host von '{name}'. Überarbeite STRIKT nach diesen Regeln:\n"
+            "• {min_words}-{max_words} Wörter (NICHT MEHR!)\n"
+            "• GENAU 5 ABSÄTZE\n"
+            "• Kurze, knappe Sätze\n"
+            "• KEINE Labels/Musik/Aufzählungen\n"
+            "• ENDE: QUELLEN: url1; url2; url3\n\n"
+            "Zu überarbeitender Text:\n{draft}"
         ).format(
             name=PODCAST_NAME,
-            slogan=SLOGAN,
-            topic=self.topic,
             min_words=SCRIPT_MIN_WORDS,
             max_words=SCRIPT_MAX_WORDS,
             draft="{draft}",
@@ -322,6 +309,7 @@ class PodcastGenerator:
 
                 raw_text = response.text or ""
 
+                # Quelle extrahieren
                 sources_line = ""
                 kept_lines = []
                 for line in raw_text.splitlines():
@@ -348,6 +336,23 @@ class PodcastGenerator:
                     expected_paragraphs=SCRIPT_EXPECTED_PARAGRAPHS,
                 )
 
+                # Intelligente Nachbearbeitung: Absatz-Struktur reparieren
+                if not validation["ok"] and validation["paragraph_count"] != SCRIPT_EXPECTED_PARAGRAPHS:
+                    cleaned_text, fixed_validation = self._repair_paragraph_structure(cleaned_text)
+                    if fixed_validation["ok"]:
+                        validation = fixed_validation
+
+                # Intelligente Nachbearbeitung: Wortanzahl reduzieren, falls zu lang
+                if not validation["ok"] and validation["word_count"] > SCRIPT_MAX_WORDS:
+                    cleaned_text = self._reduce_word_count(cleaned_text, SCRIPT_MAX_WORDS)
+                    validation = _validate_script_constraints(
+                        cleaned_text,
+                        min_words=SCRIPT_MIN_WORDS,
+                        max_words=SCRIPT_MAX_WORDS,
+                        min_paragraphs=SCRIPT_MIN_PARAGRAPHS,
+                        expected_paragraphs=SCRIPT_EXPECTED_PARAGRAPHS,
+                    )
+
                 if validation["ok"]:
                     self.script_content = cleaned_text
                     break
@@ -371,6 +376,112 @@ class PodcastGenerator:
             print("   -> Skript generiert.")
         except Exception as e:
             raise RuntimeError(f"Gemini API Fehler: {e}")
+
+    def _repair_paragraph_structure(self, text: str) -> tuple[str, dict]:
+        """Versucht, Text in GENAU 5 Absätze zu reorganisieren."""
+        from utils import _count_words
+        
+        # Extrahiere alle nicht-leeren Zeilen
+        lines = [l for l in text.splitlines() if l.strip()]
+        if not lines:
+            return text, {"ok": False, "errors": ["Text ist leer"]}
+        
+        # Strategie: Versuche, den Text intelligent auf 5 größere Absätze aufzuteilen
+        total_words = _count_words(text)
+        target_words_per_para = total_words // 5  # Ca. 1/5 pro Absatz
+        
+        # Teile in groben Blöcken auf
+        paragraphs = []
+        current_block = []
+        word_count = 0
+        
+        for line in lines:
+            line_words = _count_words(line)
+            current_block.append(line)
+            word_count += line_words
+            
+            # Wenn wir ungefähr 1/5 pro Absatz erreicht haben und ein gutes Bruchstück-Punkt ist
+            if word_count >= target_words_per_para * 0.8 and len(paragraphs) < 4:
+                paragraphs.append(" ".join(current_block))
+                current_block = []
+                word_count = 0
+        
+        # Rest in den letzten Absatz
+        if current_block:
+            paragraphs.append(" ".join(current_block))
+        
+        # Falls immer noch nicht genau 5, passe an
+        while len(paragraphs) < 5:
+            # Teile den längsten Absatz auf
+            longest_idx = max(range(len(paragraphs)), key=lambda i: _count_words(paragraphs[i]))
+            longest = paragraphs[longest_idx]
+            sentences = re.split(r'(?<=[.!?])\s+', longest)
+            
+            if len(sentences) > 2:
+                mid = len(sentences) // 2
+                paragraphs[longest_idx] = " ".join(sentences[:mid])
+                paragraphs.insert(longest_idx + 1, " ".join(sentences[mid:]))
+            else:
+                break  # Kann nicht weiter teilen
+        
+        while len(paragraphs) > 5:
+            # Merge the two shortest paragraphs
+            shortest_pairs = [(i, i+1) for i in range(len(paragraphs)-1)]
+            if not shortest_pairs:
+                break
+            merge_idx = min(shortest_pairs, key=lambda p: _count_words(paragraphs[p[0]]) + _count_words(paragraphs[p[1]]))[0]
+            paragraphs[merge_idx] = paragraphs[merge_idx] + " " + paragraphs[merge_idx + 1]
+            del paragraphs[merge_idx + 1]
+        
+        repaired_text = "\n\n".join(paragraphs)
+        
+        # Validiere die neue Struktur
+        validation = _validate_script_constraints(
+            repaired_text,
+            min_words=SCRIPT_MIN_WORDS,
+            max_words=SCRIPT_MAX_WORDS,
+            min_paragraphs=SCRIPT_MIN_PARAGRAPHS,
+            expected_paragraphs=SCRIPT_EXPECTED_PARAGRAPHS,
+        )
+        
+        return repaired_text, validation
+
+    def _reduce_word_count(self, text: str, target_max: int) -> str:
+        """Kürzt Text intelligent auf Zielwortanzahl, indem unwichtige Wörter gelöscht werden."""
+        from utils import _count_words
+        
+        current_words = _count_words(text)
+        if current_words <= target_max:
+            return text
+        
+        # Strategie: Entferne Fullwörter und Phrasen, die nicht essentiell sind
+        removed_phrases = [
+            r'\b(auch|ebenso|darüber hinaus|gemäß|laut der Forschung|wie bereits erwähnt)\b',
+            r'\b(zum Beispiel|beispielsweise|etwa|etc\.|usw\.)\b',
+            r',\s*(die auch|der auch|das auch)',
+            r'\s*(besonders|ganz|sehr|wirklich|wirklich|definitiv|absolut)\s+',
+        ]
+        
+        shortened = text
+        for pattern in removed_phrases:
+            shortened = re.sub(pattern, '', shortened, flags=re.IGNORECASE)
+            current_words = _count_words(shortened)
+            if current_words <= target_max:
+                return shortened.strip()
+        
+        # Fallback: Entferne von hinten (letzte Sätze/Phrasen)
+        paragraphs = [p.strip() for p in shortened.split("\n\n") if p.strip()]
+        while len(paragraphs) > 0 and _count_words("\n\n".join(paragraphs)) > target_max:
+            # Entferne letzte Sätze aus dem letzten Absatz
+            last_para = paragraphs[-1]
+            sentences = re.split(r'(?<=[.!?])\s+', last_para)
+            if len(sentences) > 1:
+                sentences.pop()
+                paragraphs[-1] = " ".join(sentences)
+            else:
+                paragraphs.pop()
+        
+        return "\n\n".join(paragraphs).strip()
 
     # --------------------------------------------------------------------------
     # 3. MUSIK (Freesound.org)
