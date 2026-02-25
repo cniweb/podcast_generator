@@ -22,7 +22,7 @@ Setup:
   - Checks for ffmpeg/ffprobe.
 
 End-to-end run:
-- ./run.sh "<topic>"
+- ./run.sh "{topic}"
   - Use empty topic for trend-based topic selection.
   - Cleans temp dir, keeps outputs.
 
@@ -112,7 +112,7 @@ Error Handling:
 I/O And Paths:
 - Use os.makedirs(..., exist_ok=True) for required folders.
 - Do not delete output dir content; only clean temp dir.
-- Maintain output naming conventions (<topic>.mp3, <topic>_video.mp4, etc.).
+- Maintain output naming conventions ({topic}.mp3, {topic}_video.mp4, etc.).
 
 Testing:
 - Tests live in tests/ and use pytest.

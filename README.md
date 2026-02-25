@@ -10,7 +10,8 @@
    - `./run.sh "Dein Thema"`
    - leer lassen, um Trends automatisch zu verwenden
 
-Ausgaben findest du in `PODCAST_OUTPUT_DIR` (Audio, optional Video, Transkript und Metadaten).
+Ausgaben findest du in `PODCAST_OUTPUT_DIR`.
+Audio, optionales Video, Transkript und Metadaten liegen dort.
 
 ## Hinweis für Windows
 
@@ -20,22 +21,36 @@ Ausgaben findest du in `PODCAST_OUTPUT_DIR` (Audio, optional Video, Transkript u
 
 ## Zweck
 
-- Erstellt automatisch kurze Wissens-Podcasts (Audio + optionales Standbild-Video) mit Skript, TTS-Voice, Hintergrundmusik und Metadaten.
+- Erstellt automatisch kurze Wissens-Podcasts.
+- Enthalten: Audio, optionales Standbild-Video, Skript, TTS-Voice,
+  Hintergrundmusik und Metadaten.
 - Nutzt aktuelle Trends (Google Trends) für Themenanreicherung.
-- Verwendet Gemini für Skript- und Voice-Generierung sowie Freesound für lizenzfreie Musik-Snippets.
+- Verwendet Gemini für Skript- und Voice-Generierung.
+- Nutzt Freesound für lizenzfreie Musik-Snippets.
 
 ## Architektur & Ablauf
 
 1. `run.sh "<Thema>"`
-   - Lädt `.env`, prüft alle Pflicht-Variablen, bereinigt Arbeitsordner, aktiviert venv und startet `podcast_generator.py`.
+   - Lädt `.env`.
+   - Prüft Pflicht-Variablen.
+   - Bereinigt Arbeitsordner.
+   - Aktiviert venv und startet `podcast_generator.py`.
 2. `setup.sh`
-   - Optionaler Helfer: prüft `.env`, FFmpeg, Python, installiert Requirements.
+   - Optionaler Helfer.
+   - Prüft `.env`, FFmpeg und Python.
+   - Installiert Requirements.
 3. `podcast_generator.py`
-   - Trends: holt Top-Query via Google Trends (pytrends) mit Fokus DACH (DE/AT/CH); fällt bei Fehlschlag auf statisches Thema zurück.
-   - Skript: Gemini-Textmodell generiert deutschen Sprechtext, säubert Formatierung, entfernt Regie-/Sound-Anweisungen, speichert Transkript.
-   - Stimme: Gemini TTS (`gemini-2.5-pro-preview-tts`, Stimme konfigurierbar) generiert Audio in Chunks, fügt per pydub zusammen.
-   - Musik: sucht Freesound nach „podcast background `topic` instrumental“, fällt auf „lofi study loop“ zurück, sonst Stille.
-   - Mixing: Sprachspur mit geloopter Musik unterlegt, Export als MP3; Video mit FFmpeg als Standbild + Audio.
+   - Trends: holt Top-Query via Google Trends (pytrends) mit Fokus DACH (DE/AT/CH).
+     Fällt bei Fehlschlag auf statisches Thema zurück.
+   - Skript: Gemini-Textmodell generiert deutschen Sprechtext.
+     Säubert Formatierung, entfernt Regie-/Sound-Anweisungen, speichert Transkript.
+   - Stimme: Gemini TTS (`gemini-2.5-pro-preview-tts`, Stimme konfigurierbar)
+     generiert Audio in Chunks.
+     Fügt per pydub zusammen.
+   - Musik: sucht Freesound nach „podcast background `topic` instrumental“.
+     Fällt auf „lofi study loop“ zurück, sonst Stille.
+   - Mixing: Sprachspur mit geloopter Musik unterlegt, Export als MP3.
+     Video mit FFmpeg als Standbild + Audio.
    - Metadaten: JSON + Transkript-Text im Output-Ordner.
 
 ## Verwendete APIs / Tools
@@ -48,8 +63,9 @@ Ausgaben findest du in `PODCAST_OUTPUT_DIR` (Audio, optional Video, Transkript u
 ## Voraussetzungen
 
 - ffmpeg inkl. ffprobe im PATH (Windows/macOS/Linux)
-- Python 3.12+ empfohlen (wegen audioop); venv wird von `run.sh`/`setup.sh` angelegt
-- `.env` mit allen Pflichtwerten.
+- Python 3.12+ empfohlen (wegen audioop)
+- venv wird von `run.sh`/`setup.sh` angelegt
+- `.env` mit allen Pflichtwerten
 
 ## .env Beispiel (alle Pflichtfelder)
 
@@ -88,15 +104,18 @@ Ausgaben:
 
 ## Konfiguration
 
-- Stimme anpassen in [podcast_generator.py](podcast_generator.py) via `voice_name` (unter `3. STIMME`).
+- Stimme anpassen in [podcast_generator.py](podcast_generator.py) via `voice_name`.
+  Abschnitt: `3. STIMME`.
 - Cover-Bild: `assets/cover.png` oder `assets/cover.jpg`.
 - Musik-Query-Fallbacks: zuerst themenbezogen, dann „lofi study loop“, sonst Stille.
 
 ## Fehlerbehebung
 
 - Fehler `Environment variable ... is required`: .env prüfen und Wert setzen.
-- ffmpeg nicht gefunden: ffmpeg installieren und PATH prüfen, danach `setup.sh` erneut ausführen.
-- `audioop` fehlt: `run.sh` installiert `audioop-lts` über requirements; sicherstellen, dass Python 3.12+ genutzt wird.
+- ffmpeg nicht gefunden: ffmpeg installieren und PATH prüfen.
+  Danach `setup.sh` erneut ausführen.
+- `audioop` fehlt: `run.sh` installiert `audioop-lts` über requirements.
+  Sicherstellen, dass Python 3.12+ genutzt wird.
 
 ## Entwickler-Onboarding (Contributor)
 
