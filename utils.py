@@ -29,6 +29,85 @@ def _strip_formatting(text: str) -> str:
     return text
 
 
+def _count_words(text: str) -> int:
+    """Zählt Wort-Tokens (Whitespace-getrennt) nach Trimmen."""
+    cleaned = " ".join(text.split())
+    if not cleaned:
+        return 0
+    return len(cleaned.split(" "))
+
+
+def _validate_script_constraints(
+    text: str,
+    min_words: int,
+    max_words: int,
+    min_paragraphs: int,
+) -> dict:
+    """Validiert Sprechertext gegen Struktur- und Formatierungsregeln."""
+    errors: list[str] = []
+    forbidden_lines: list[str] = []
+
+    heading_pattern = re.compile(r"^\s*[A-Za-zÄÖÜäöüß][\wÄÖÜäöüß\s]*:\s*$")
+    divider_pattern = re.compile(r"^\s*-{3,}\s*$")
+    bullet_pattern = re.compile(r"^\s*([-*]|\d+\.)\s+")
+    stage_pattern = re.compile(r"\b(musik|jingle|sound|atmos|beat|lacht|faded)\b", re.IGNORECASE)
+
+    found_heading = False
+    found_divider = False
+    found_bullet = False
+    found_stage = False
+
+    for line in text.splitlines():
+        if not line.strip():
+            continue
+        if heading_pattern.match(line):
+            found_heading = True
+            if line not in forbidden_lines:
+                forbidden_lines.append(line)
+        if divider_pattern.match(line):
+            found_divider = True
+            if line not in forbidden_lines:
+                forbidden_lines.append(line)
+        if bullet_pattern.match(line):
+            found_bullet = True
+            if line not in forbidden_lines:
+                forbidden_lines.append(line)
+        if stage_pattern.search(line):
+            found_stage = True
+            if line not in forbidden_lines:
+                forbidden_lines.append(line)
+
+    if found_heading:
+        errors.append("Überschriften/Labels gefunden.")
+    if found_divider:
+        errors.append("Trennerlinien gefunden.")
+    if found_bullet:
+        errors.append("Aufzählungen oder nummerierte Listen gefunden.")
+    if found_stage:
+        errors.append("Bühnenanweisungen/Stichworte gefunden.")
+
+    paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
+    paragraph_count = len(paragraphs)
+    word_count = _count_words(text)
+
+    if word_count < min_words or word_count > max_words:
+        errors.append(
+            f"Wortanzahl außerhalb des Bereichs ({word_count} statt {min_words}-{max_words})."
+        )
+    if paragraph_count < min_paragraphs:
+        errors.append(
+            f"Zu wenige Absätze ({paragraph_count} statt mindestens {min_paragraphs})."
+        )
+
+    return {
+        "ok": len(errors) == 0,
+        "errors": errors,
+        "word_count": word_count,
+        "paragraph_count": paragraph_count,
+        "forbidden_lines": forbidden_lines,
+    }
+
+
 def _chunk_text(text: str, max_chars: int = 1500) -> List[str]:
     """Zerteilt Text nach Absätzen, damit TTS-Limits eingehalten werden."""
     paragraphs = [p for p in text.split("\n\n") if p.strip()]
