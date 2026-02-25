@@ -14,13 +14,34 @@ def _make_script(paragraphs: int = 5, words_per_paragraph: int = 20) -> str:
 
 def test_validate_script_constraints_success_case():
     text = _make_script(paragraphs=5, words_per_paragraph=20)
-    result = _validate_script_constraints(text, min_words=80, max_words=120, min_paragraphs=5)
+    result = _validate_script_constraints(
+        text,
+        min_words=80,
+        max_words=120,
+        min_paragraphs=5,
+        expected_paragraphs=5,
+    )
 
     assert result["ok"] is True
     assert result["errors"] == []
     assert result["word_count"] == 100
     assert result["paragraph_count"] == 5
     assert result["forbidden_lines"] == []
+
+
+def test_validate_script_constraints_rejects_wrong_paragraph_count():
+    text = _make_script(paragraphs=4, words_per_paragraph=20)
+    result = _validate_script_constraints(
+        text,
+        min_words=80,
+        max_words=120,
+        min_paragraphs=3,
+        expected_paragraphs=5,
+    )
+
+    assert result["ok"] is False
+    assert any("Absatzanzahl" in err for err in result["errors"])
+    assert result["paragraph_count"] == 4
 
 
 def test_validate_script_constraints_rejects_bullets_and_numbers():

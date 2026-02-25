@@ -42,6 +42,7 @@ def _validate_script_constraints(
     min_words: int,
     max_words: int,
     min_paragraphs: int,
+    expected_paragraphs: int | None = None,
 ) -> dict:
     """Validiert Sprechertext gegen Struktur- und Formatierungsregeln."""
     errors: list[str] = []
@@ -97,6 +98,11 @@ def _validate_script_constraints(
     if paragraph_count < min_paragraphs:
         errors.append(
             f"Zu wenige Absätze ({paragraph_count} statt mindestens {min_paragraphs})."
+        )
+    if expected_paragraphs is not None and paragraph_count != expected_paragraphs:
+        errors.append(
+            "Absatzanzahl entspricht nicht der erwarteten Struktur "
+            f"({paragraph_count} statt {expected_paragraphs})."
         )
 
     return {
