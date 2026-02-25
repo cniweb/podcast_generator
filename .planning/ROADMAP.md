@@ -26,10 +26,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Success Criteria** (what must be TRUE):
   1. User can provide a topic and receive a spoken-style script in one CLI run.
   2. The script length and structure are suitable for narration without manual editing.
-**Plans**: 1 plan
-
-Plans:
-- [ ] 01-script-generation-01-PLAN.md — Enforce script constraints with validation, retries, and tests
+**Plans**: TBD
 
 ### Phase 2: Narration Generation
 **Goal**: Users can generate stable narration audio from scripts.
@@ -66,7 +63,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Script Generation | 0/1 | Not started | - |
+| 1. Script Generation | 0/0 | Not started | - |
 | 2. Narration Generation | 0/0 | Not started | - |
 | 3. Audio Processing | 0/0 | Not started | - |
 | 4. Export & Metadata | 0/0 | Not started | - |
