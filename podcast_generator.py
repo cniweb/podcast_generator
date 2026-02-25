@@ -367,7 +367,7 @@ class PodcastGenerator:
     # --------------------------------------------------------------------------
     def generate_voice(self):
         """Konvertiert das Skript in Audio: Gemini TTS mit Rate-Limit-Fallback zu Cloud TTS."""
-        print("🗣️  4. Generiere Stimme (Gemini TTS, Fallback Google Cloud TTS + SSML)...")
+        print("🗣️ 4. Generiere Stimme (Gemini TTS, Fallback Google Cloud TTS + SSML)...")
 
         _ensure_audio_tools()
 
