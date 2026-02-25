@@ -243,7 +243,7 @@ class PodcastGenerator:
     # --------------------------------------------------------------------------
     def generate_script(self):
         """Lässt Gemini ein Podcast-Skript erstellen und säubert Formatierungen."""
-        print(f"✍️  2. Gemini schreibt das Skript über '{self.topic}'...")
+        print(f"✍️ 2. Gemini schreibt das Skript über '{self.topic}'...")
 
         # Prompt optimiert für SSML Betonung
         prompt = f"""
