@@ -528,7 +528,7 @@ class PodcastGenerator:
     # --------------------------------------------------------------------------
     def mix_audio(self):
         """Mischt Stimme mit Musik-Loop und exportiert die finale MP3."""
-        print("🎛️  5. Mixing...")
+        print("🎛️ 5. Mixing...")
         voice = AudioSegment.from_mp3(self.audio_voice_path)
 
         if self.music_path and os.path.exists(self.music_path):
