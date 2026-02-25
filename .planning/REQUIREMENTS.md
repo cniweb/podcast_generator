@@ -9,8 +9,8 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Topic & Script
 
-- [ ] **SCRIPT-01**: User can provide a topic and receive a spoken-style script
-- [ ] **SCRIPT-02**: Script output enforces length and structure suitable for narration
+- [x] **SCRIPT-01**: User can provide a topic and receive a spoken-style script
+- [x] **SCRIPT-02**: Script output enforces length and structure suitable for narration
 
 ### Narration (TTS)
 
@@ -76,8 +76,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SCRIPT-01 | Phase 1 | Pending |
-| SCRIPT-02 | Phase 1 | Pending |
+| SCRIPT-01 | Phase 1 | Complete |
+| SCRIPT-02 | Phase 1 | Complete |
 | TTS-01 | Phase 2 | Pending |
 | TTS-02 | Phase 2 | Pending |
 | AUDIO-01 | Phase 3 | Pending |
