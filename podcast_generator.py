@@ -382,7 +382,7 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
         from utils import _count_words
         
         # Extrahiere alle nicht-leeren Zeilen
-        lines = [l for l in text.splitlines() if l.strip()]
+        lines = [line for line in text.splitlines() if line.strip()]
         if not lines:
             return text, {"ok": False, "errors": ["Text ist leer"]}
         
