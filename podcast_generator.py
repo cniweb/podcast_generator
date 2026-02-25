@@ -63,6 +63,7 @@ SCRIPT_TARGET_WORDS = 700
 SCRIPT_MIN_WORDS = 650
 SCRIPT_MAX_WORDS = 800
 SCRIPT_MIN_PARAGRAPHS = 5
+SCRIPT_EXPECTED_PARAGRAPHS = 5
 
 
 def _is_rate_limited_error(err: Exception | str) -> bool:
@@ -344,6 +345,7 @@ class PodcastGenerator:
                     min_words=SCRIPT_MIN_WORDS,
                     max_words=SCRIPT_MAX_WORDS,
                     min_paragraphs=SCRIPT_MIN_PARAGRAPHS,
+                    expected_paragraphs=SCRIPT_EXPECTED_PARAGRAPHS,
                 )
 
                 if validation["ok"]:
