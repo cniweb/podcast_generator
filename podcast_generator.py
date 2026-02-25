@@ -20,7 +20,12 @@ from typing import List
 # ==============================================================================
 # KONFIGURATION & API KEYS aus .env auslesen
 # ==============================================================================
-from utils import _chunk_text, _spell_out_abbreviations, _strip_formatting
+from utils import (
+    _chunk_text,
+    _spell_out_abbreviations,
+    _strip_formatting,
+    _validate_script_constraints,
+)
 load_dotenv()
 
 def _require_env(var_name):
@@ -52,6 +57,12 @@ client = genai.Client(api_key=GEMINI_API_KEY)
 
 # Standard-Modell für Fallbacks
 DEFAULT_MODEL = "gemini-2.0-flash"
+
+# Skript-Constraints (SCRIPT-01/02)
+SCRIPT_TARGET_WORDS = 700
+SCRIPT_MIN_WORDS = 650
+SCRIPT_MAX_WORDS = 800
+SCRIPT_MIN_PARAGRAPHS = 5
 
 
 def _is_rate_limited_error(err: Exception | str) -> bool:
@@ -258,7 +269,7 @@ class PodcastGenerator:
            - 3 faszinierende Fakten (Deep Dive).
            - Kurzes, warmes Outro.
         4. Formatierung: Reiner Sprechtext. Keine Regieanweisungen oder Bühnenanweisungen (kein "Lacht", "Musik", "Sound", "Jingle", "Atmos", "Beat", "faded" etc.), keine Labels oder Überschriften wie "Sprechtext" oder "---", keine Trennerlinien, kein Text vor dem eigentlichen gesprochenen Einstieg.
-        5. Länge: Ca. 700 Wörter.
+        5. Länge: Ca. {SCRIPT_TARGET_WORDS} Wörter.
         6. Metadaten: Am Ende eine Zeile: "QUELLEN: url1; url2; url3".
         7. Sprache: Deutsch
         8. Vermeide Aufzählungen oder nummerierte Listen im gesprochenen Text.
@@ -268,32 +279,88 @@ class PodcastGenerator:
         12. Schreibe so, dass es sich natürlich anhört, wenn es vorgelesen wird (kurze Sätze!).
         13. Erwähne am Ende das die Zuhörer den Podcast gerene bewerten können und uns folgen sollen (Hashtag {PODCAST_NAME}).
         """
+
+        fixup_prompt = (
+            "Du bist der Host des Podcasts '{name}'. Slogan: '{slogan}'. "
+            "Überarbeite das bestehende Skript zum Thema '{topic}'. "
+            "Gib ausschließlich den finalen Sprechtext zurück, ohne Labels oder Erklärungen. "
+            "Halte strikt diese Regeln ein:\n"
+            "- Reiner Sprechtext, keine Überschriften, Labels, Trennerlinien oder Listen.\n"
+            "- Keine Bühnenanweisungen (z. B. Musik, Jingle, Sound, Atmos, Beat, Lacht, faded).\n"
+            "- Struktur: Intro + 3 Fakten + Outro, mindestens 5 Absätze.\n"
+            "- Wortanzahl zwischen {min_words} und {max_words}.\n"
+            "- Am Ende eine Zeile: QUELLEN: url1; url2; url3\n"
+            "- Sprache: Deutsch\n\n"
+            "Vorheriger Entwurf:\n{draft}"
+        ).format(
+            name=PODCAST_NAME,
+            slogan=SLOGAN,
+            topic=self.topic,
+            min_words=SCRIPT_MIN_WORDS,
+            max_words=SCRIPT_MAX_WORDS,
+            draft="{draft}",
+        )
         
         preferred = ["gemini-3-pro-preview", "gemini-2.5-pro", "gemini-2.5-flash", DEFAULT_MODEL, "gemini-pro-latest"]
         model_name = pick_available_model(preferred)
         print(f"   -> Verwende Modell: {model_name}")
 
         try:
-            response = client.models.generate_content(model=model_name, contents=prompt)
-            raw_text = response.text
-
-            sources_line = ""
-            kept_lines = []
-            for line in raw_text.splitlines():
-                if line.strip().upper().startswith("QUELLEN:"):
-                    sources_line = line
+            attempts = 3
+            last_errors: list[str] = []
+            raw_text = ""
+            for attempt in range(1, attempts + 1):
+                if attempt == 1:
+                    response = client.models.generate_content(model=model_name, contents=prompt)
                 else:
-                    kept_lines.append(line)
+                    print(f"   ⚠️  Skript verletzt Constraints. Versuch {attempt}/{attempts}...")
+                    response = client.models.generate_content(
+                        model=model_name,
+                        contents=fixup_prompt.format(draft=raw_text),
+                    )
 
-            if sources_line:
-                parts = sources_line.split(":", 1)[-1]
-                self.sources = [s.strip() for s in parts.split(";") if s.strip()]
-            else:
-                self.sources = []
+                raw_text = response.text or ""
 
-            cleaned_text = "\n".join(kept_lines)
-            cleaned_text = _strip_formatting(cleaned_text)
-            self.script_content = _spell_out_abbreviations(cleaned_text)
+                sources_line = ""
+                kept_lines = []
+                for line in raw_text.splitlines():
+                    if line.strip().upper().startswith("QUELLEN:"):
+                        sources_line = line
+                    else:
+                        kept_lines.append(line)
+
+                if sources_line:
+                    parts = sources_line.split(":", 1)[-1]
+                    self.sources = [s.strip() for s in parts.split(";") if s.strip()]
+                else:
+                    self.sources = []
+
+                cleaned_text = "\n".join(kept_lines)
+                cleaned_text = _strip_formatting(cleaned_text)
+                cleaned_text = _spell_out_abbreviations(cleaned_text)
+
+                validation = _validate_script_constraints(
+                    cleaned_text,
+                    min_words=SCRIPT_MIN_WORDS,
+                    max_words=SCRIPT_MAX_WORDS,
+                    min_paragraphs=SCRIPT_MIN_PARAGRAPHS,
+                )
+
+                if validation["ok"]:
+                    self.script_content = cleaned_text
+                    break
+
+                summary = (
+                    f"Versuch {attempt}: {', '.join(validation['errors'])} "
+                    f"(Wörter: {validation['word_count']}, Absätze: {validation['paragraph_count']})"
+                )
+                last_errors.append(summary)
+
+            if not self.script_content:
+                raise RuntimeError(
+                    "Skript verletzt nach mehreren Versuchen die Constraints: "
+                    + " | ".join(last_errors)
+                )
 
             self.transcript_path = f"{TEMP_DIR}/script.txt"
             with open(self.transcript_path, "w", encoding="utf-8") as f:
