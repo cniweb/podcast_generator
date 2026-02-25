@@ -76,20 +76,20 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SCRIPT-01 | Phase [N] | Pending |
-| SCRIPT-02 | Phase [N] | Pending |
-| TTS-01 | Phase [N] | Pending |
-| TTS-02 | Phase [N] | Pending |
-| AUDIO-01 | Phase [N] | Pending |
-| AUDIO-02 | Phase [N] | Pending |
-| EXPORT-01 | Phase [N] | Pending |
-| EXPORT-02 | Phase [N] | Pending |
-| LICENSE-01 | Phase [N] | Pending |
+| SCRIPT-01 | Phase 1 | Pending |
+| SCRIPT-02 | Phase 1 | Pending |
+| TTS-01 | Phase 2 | Pending |
+| TTS-02 | Phase 2 | Pending |
+| AUDIO-01 | Phase 3 | Pending |
+| AUDIO-02 | Phase 3 | Pending |
+| EXPORT-01 | Phase 4 | Pending |
+| EXPORT-02 | Phase 4 | Pending |
+| LICENSE-01 | Phase 4 | Pending |
 
 **Coverage:**
 - v1 requirements: 9 total
-- Mapped to phases: 0
-- Unmapped: 9 ⚠️
+- Mapped to phases: 9
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-02-25*
