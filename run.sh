@@ -107,7 +107,7 @@ else
 fi
 
 # 6. PROGRAMM STARTEN
-echo -e "\n${GREEN}🚀 Starte $PODCAST_NAME Generator mit Thema: '$TOPIC'${NC}"
+printf "\n%b🚀 Starte %s Generator mit Thema:%b\n'%s'\n\n" "$GREEN" "$PODCAST_NAME" "$NC" "$TOPIC"
 echo "------------------------------------------------"
 
 # Wir pipen das Thema direkt in das Python-Skript, da dieses 'input()' verwendet.

@@ -1,4 +1,5 @@
 import os
+import builtins
 import requests
 import json
 import subprocess
@@ -6,16 +7,19 @@ import re
 import io
 import math
 import mimetypes
+import sys
+import threading
 import time
 import xml.etree.ElementTree as ET
 import shutil
+from contextlib import contextmanager
 from pytrends.request import TrendReq
 from google import genai
 from google.genai import types
 from google.cloud import texttospeech
 from pydub import AudioSegment
 from dotenv import load_dotenv
-from typing import List
+from typing import Callable, List
 
 # ==============================================================================
 # KONFIGURATION & API KEYS aus .env auslesen
@@ -27,6 +31,30 @@ from utils import (
     _validate_script_constraints,
 )
 load_dotenv()
+
+
+_PRINT_LOCK = threading.Lock()
+_ACTIVE_SPINNER = None
+_SPINNER_LINE_ACTIVE = False
+_SPINNER_DEFER_OUTPUT = False
+_DEFERRED_STDOUT_PRINTS: list[tuple[tuple, dict]] = []
+
+
+def _safe_print(*args, **kwargs):
+    """Stellt sicher, dass Log-Zeilen nicht in Spinner-Zeilen geschrieben werden."""
+    global _SPINNER_LINE_ACTIVE
+    with _PRINT_LOCK:
+        file_target = kwargs.get("file", sys.stdout)
+        if _SPINNER_DEFER_OUTPUT and file_target is sys.stdout:
+            _DEFERRED_STDOUT_PRINTS.append((args, dict(kwargs)))
+            return
+        if _SPINNER_LINE_ACTIVE:
+            builtins.print("", file=sys.stderr, flush=True)
+            _SPINNER_LINE_ACTIVE = False
+        builtins.print(*args, **kwargs)
+
+
+print = _safe_print
 
 def _require_env(var_name):
     """Liest eine benötigte Umgebungsvariable ein und bricht mit klarer Meldung ab."""
@@ -194,6 +222,97 @@ def _ensure_audio_tools():
     _require_ffmpeg("ffprobe")
 
 
+class _AsciiDotsSpinner:
+    """Einfacher ASCII-Spinner für lange Schritte in der Konsole."""
+
+    def __init__(self, label: str, interval: float = 0.35, start_after: float = 0.0, defer_stdout: bool = False):
+        self.label = label
+        self.interval = interval
+        self.start_after = start_after
+        self.defer_stdout = defer_stdout
+        self._stop_event = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._enabled = sys.stdout.isatty()
+        self._shown = False
+
+    def start(self):
+        global _ACTIVE_SPINNER, _SPINNER_DEFER_OUTPUT
+        if not self._enabled:
+            return
+        self._stop_event.clear()
+        with _PRINT_LOCK:
+            _ACTIVE_SPINNER = self
+            _SPINNER_DEFER_OUTPUT = False
+            _DEFERRED_STDOUT_PRINTS.clear()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def _run(self):
+        global _SPINNER_LINE_ACTIVE, _SPINNER_DEFER_OUTPUT
+        if self.start_after > 0 and self._stop_event.wait(self.start_after):
+            return
+        tick = 0
+        while not self._stop_event.is_set():
+            self._shown = True
+            dots = "." * ((tick % 3) + 1)
+            with _PRINT_LOCK:
+                builtins.print(f"\r   {self.label} {dots:<3}", end="", flush=True, file=sys.stderr)
+                _SPINNER_LINE_ACTIVE = True
+                _SPINNER_DEFER_OUTPUT = self.defer_stdout
+            tick += 1
+            self._stop_event.wait(self.interval)
+
+    def stop(self, status: str = "abgeschlossen"):
+        global _ACTIVE_SPINNER, _SPINNER_LINE_ACTIVE, _SPINNER_DEFER_OUTPUT
+        if not self._enabled:
+            return
+        self._stop_event.set()
+        if self._thread is not None:
+            self._thread.join(timeout=1)
+        with _PRINT_LOCK:
+            if self._shown:
+                builtins.print("\r", end="", file=sys.stderr, flush=True)
+                builtins.print(f"   {self.label} ... {status}", file=sys.stderr, flush=True)
+            _SPINNER_DEFER_OUTPUT = False
+            _ACTIVE_SPINNER = None
+            _SPINNER_LINE_ACTIVE = False
+            for args, kwargs in _DEFERRED_STDOUT_PRINTS:
+                builtins.print(*args, **kwargs)
+            _DEFERRED_STDOUT_PRINTS.clear()
+
+
+@contextmanager
+def _with_spinner(label: str, start_after: float = 0.0, defer_stdout: bool = False):
+    spinner = _AsciiDotsSpinner(label, start_after=start_after, defer_stdout=defer_stdout)
+    spinner.start()
+    try:
+        yield
+    finally:
+        spinner.stop("abgeschlossen")
+
+
+def _run_step(step_label: str, action: Callable[[], object], spinner_after: float = 10.0, defer_output: bool = False):
+    with _with_spinner(f"{step_label} läuft", start_after=spinner_after, defer_stdout=defer_output):
+        result = action()
+    print(f"✅ {step_label} erfolgreich abgeschlossen.")
+    return result
+
+
+def _build_step_plan(bot: "PodcastGenerator", generate_video: bool) -> list[tuple[str, Callable[[], object], bool]]:
+    """Erzeugt den dynamischen Ausführungsplan inkl. optionalem Videoschritt."""
+    plan: list[tuple[str, Callable[[], object], bool]] = [
+        ("Trends", bot.research_trends, False),
+        ("Skript", bot.generate_script, True),
+        ("Musik", bot.fetch_music, True),
+        ("Stimme", bot.generate_voice, True),
+        ("Mixing", bot.mix_audio, False),
+    ]
+    if generate_video:
+        plan.append(("Video", bot.create_video, False))
+    plan.append(("Metadaten", bot.generate_metadata, True))
+    return plan
+
+
 def _to_ssml(text: str) -> str:
     """Baut SSML aus Klarschrift und wandelt *Wort* in <emphasis> um."""
     def _escape_ssml(value: str) -> str:
@@ -239,7 +358,7 @@ class PodcastGenerator:
         self.final_video_path = ""
         self.sources = []
         self.transcript_path = ""
-        print(f"🚀 Starte Produktion für Thema: '{topic}'")
+        print(f"🚀 Starte Produktion für Thema: '{topic}'\n")
 
     def _translate_topic_to_en(self, topic: str) -> str:
         """Übersetzt das Thema knapp ins Englische, falls Freesound-Suche hilft."""
@@ -795,6 +914,7 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
                 try:
                     seg = self._process_chunk(idx, chunk, model_tts, voice_name)
                     segments.append(seg)
+                    print(f"   ✅ Chunk {idx + 1}/{len(chunks)} fertig ({model_tts})")
                     gem_err = None
                     break
                 except Exception as err:
@@ -808,6 +928,7 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
                 print(f"      -> Nutze Cloud TTS mit SSML für Chunk {idx}...")
                 seg = self._generate_chunk_with_gcloud(idx, chunk)
                 segments.append(seg)
+                print(f"   ✅ Chunk {idx + 1}/{len(chunks)} fertig (Cloud TTS)")
                 continue
             except Exception as gc_err:
                 print(f"   ❌ Google Cloud TTS Fehler (Fallback) bei Chunk {idx}: {gc_err}")
@@ -911,9 +1032,11 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
             "transcript_file": transcription_output_path,
         }
         # ensure_ascii=False, damit Umlaute in title/description lesbar bleiben
-        with open(f"{OUTPUT_DIR}/{self.topic.replace(' ', '_')}_meta.json", "w", encoding="utf-8") as f:
+        meta_output_path = f"{OUTPUT_DIR}/{self.topic.replace(' ', '_')}_meta.json"
+        with open(meta_output_path, "w", encoding="utf-8") as f:
             json.dump(meta, f, ensure_ascii=False, indent=4)
-        print("   -> Fertig.")
+        print(f"   -> Transkript gespeichert: {transcription_output_path}")
+        print(f"   -> Metadaten gespeichert: {meta_output_path}")
 
 def _pick_realtime_title(df_rt):
     """Liest den bestmöglichen Titel aus realtime_trending_searches."""
@@ -1034,6 +1157,8 @@ if __name__ == "__main__":
     print(f"--- {PODCAST_NAME.upper()} AUTOMATISIERUNG ---")
     _ensure_audio_tools()
     topic = input("Thema (Lass leer für aktuellen Top-Trend): ").strip()
+    if topic and not sys.stdin.isatty():
+        print()
 
     if not topic:
         print("🔍 Keine Eingabe. Suche nach aktuellen Trends in Deutschland...")
@@ -1059,16 +1184,13 @@ if __name__ == "__main__":
             print(f"   ⚠️ Fehler bei Trend-Suche: {e}. Nutze Fallback.")
             topic = "Künstliche Intelligenz"
     bot = PodcastGenerator(topic)
-    
-    bot.research_trends()
-    bot.generate_script()
-    bot.fetch_music()
-    bot.generate_voice()
-    bot.mix_audio()
-    if GENERATE_VIDEO:
-        bot.create_video()
-    else:
-        print("⏭️ 6. Video-Generierung übersprungen (GENERATE_VIDEO=false).")
-    bot.generate_metadata()
+
+    step_plan = _build_step_plan(bot, GENERATE_VIDEO)
+    total_steps = len(step_plan)
+    for idx, (step_name, step_action, defer_output) in enumerate(step_plan, start=1):
+        _run_step(f"Schritt {idx}/{total_steps} ({step_name})", step_action, defer_output=defer_output)
+
+    if not GENERATE_VIDEO:
+        print("⏭️ Videoschritt deaktiviert (GENERATE_VIDEO=false).")
     
     print("\n✅ ALLES ERLEDIGT!")
