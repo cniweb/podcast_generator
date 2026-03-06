@@ -46,6 +46,7 @@ SLOGAN = _require_env("PODCAST_SLOGAN")
 TEMP_DIR = _require_env("PODCAST_TEMP_DIR")
 OUTPUT_DIR = _require_env("PODCAST_OUTPUT_DIR")
 ASSETS_DIR = _require_env("PODCAST_ASSETS_DIR")
+SCRIPT_DEFAULT_MODEL = _require_env("SCRIPT_DEFAULT_MODEL")
 
 # Ordner erstellen
 os.makedirs(TEMP_DIR, exist_ok=True)
@@ -56,7 +57,7 @@ os.makedirs(ASSETS_DIR, exist_ok=True)
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 # Standard-Modell für Fallbacks
-DEFAULT_MODEL = "gemini-2.0-flash"
+DEFAULT_MODEL = SCRIPT_DEFAULT_MODEL
 
 # Skript-Constraints
 SCRIPT_TARGET_WORDS = 700
@@ -178,7 +179,14 @@ class PodcastGenerator:
 
     def _generate_episode_metadata(self) -> tuple[str, str]:
         """Erstellt Titel und Beschreibung basierend auf dem Transkript."""
-        preferences = ["gemini-3-pro-preview", "gemini-2.5-pro", "gemini-2.5-flash", DEFAULT_MODEL, "gemini-pro-latest"]
+        preferences = [
+            "gemini-3.1-pro-preview",
+            "gemini-3-pro-preview",
+            "gemini-2.5-pro",
+            "gemini-2.5-flash",
+            DEFAULT_MODEL,
+            "gemini-pro-latest",
+        ]
         model_name = pick_available_model(preferences)
 
         prompt = (
@@ -289,7 +297,14 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
             draft="{draft}",
         )
         
-        preferred = ["gemini-3-pro-preview", "gemini-2.5-pro", "gemini-2.5-flash", DEFAULT_MODEL, "gemini-pro-latest"]
+        preferred = [
+            "gemini-3.1-pro-preview",
+            "gemini-3-pro-preview",
+            "gemini-2.5-pro",
+            "gemini-2.5-flash",
+            DEFAULT_MODEL,
+            "gemini-pro-latest",
+        ]
         model_name = pick_available_model(preferred)
         print(f"   -> Verwende Modell: {model_name}")
 

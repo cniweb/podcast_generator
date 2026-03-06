@@ -19,7 +19,7 @@ set -a
 source .env
 set +a
 
-required_vars=(GEMINI_API_KEY FREESOUND_API_KEY GOOGLE_APPLICATION_CREDENTIALS PODCAST_NAME PODCAST_SLOGAN PODCAST_TEMP_DIR PODCAST_OUTPUT_DIR PODCAST_ASSETS_DIR)
+required_vars=(GEMINI_API_KEY FREESOUND_API_KEY GOOGLE_APPLICATION_CREDENTIALS PODCAST_NAME PODCAST_SLOGAN SCRIPT_DEFAULT_MODEL PODCAST_TEMP_DIR PODCAST_OUTPUT_DIR PODCAST_ASSETS_DIR)
 missing=()
 for var in "${required_vars[@]}"; do
     val=${!var}
@@ -99,6 +99,6 @@ fi
 # 4. Abschluss und API Key Check
 echo -e "\n${GREEN}--- Installation abgeschlossen! ---${NC}"
 echo -e "${YELLOW}Erinnerung: Bitte stelle sicher, dass du folgende Schritte erledigt hast:${NC}"
-echo "1. .env mit GEMINI_API_KEY, FREESOUND_API_KEY, GOOGLE_APPLICATION_CREDENTIALS, PODCAST_NAME, PODCAST_SLOGAN, PODCAST_TEMP_DIR, PODCAST_OUTPUT_DIR und PODCAST_ASSETS_DIR füllen."
+echo "1. .env mit GEMINI_API_KEY, FREESOUND_API_KEY, GOOGLE_APPLICATION_CREDENTIALS, PODCAST_NAME, PODCAST_SLOGAN, SCRIPT_DEFAULT_MODEL, PODCAST_TEMP_DIR, PODCAST_OUTPUT_DIR und PODCAST_ASSETS_DIR füllen."
 echo "2. Die Datei 'google_cloud_credentials.json' muss im selben Ordner liegen oder der Pfad im .env gesetzt sein."
 echo -e "\nDu kannst das Programm nun starten mit: ${GREEN}python3 podcast_generator.py${NC}"
