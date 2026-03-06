@@ -72,6 +72,7 @@ SCRIPT_MIN_WORDS = 650
 SCRIPT_MAX_WORDS = 800
 SCRIPT_MIN_PARAGRAPHS = 5
 SCRIPT_EXPECTED_PARAGRAPHS = 5
+_MODEL_NAMES_CACHE: set[str] | None = None
 
 
 def _parse_csv_models(value: str) -> list[str]:
@@ -92,18 +93,65 @@ def _normalize_model_name(model_name: str) -> str:
     return (model_name or "").replace("models/", "").strip()
 
 
-def _discover_tts_models() -> set[str]:
-    """Liest verfügbare TTS-Modelle aus der Gemini API aus."""
+def _discover_model_names() -> set[str]:
+    """Liest verfügbare Modellnamen einmalig aus und cached sie."""
+    global _MODEL_NAMES_CACHE
+    if _MODEL_NAMES_CACHE is not None:
+        return _MODEL_NAMES_CACHE
+
     try:
         discovered: set[str] = set()
         for model in client.models.list():
             short = _normalize_model_name(getattr(model, "name", ""))
-            if "tts" in short.lower():
+            if short:
                 discovered.add(short)
+        _MODEL_NAMES_CACHE = discovered
         return discovered
     except Exception as e:
-        print(f"   ⚠️ Model Discovery fehlgeschlagen ({e}). Nutze konfigurierte TTS-Modelle.")
-        return set()
+        print(f"   ⚠️ Model Discovery fehlgeschlagen ({e}).")
+        _MODEL_NAMES_CACHE = set()
+        return _MODEL_NAMES_CACHE
+
+
+def _discover_script_models() -> set[str]:
+    blocked_tokens = {"embedding", "tts", "image", "imagen", "veo", "computer-use", "robotics", "aqa", "native-audio"}
+    candidates: set[str] = set()
+    for model in _discover_model_names():
+        if any(tok in model for tok in blocked_tokens):
+            continue
+        candidates.add(model)
+    return candidates
+
+
+def _resolve_script_model(preferences: List[str]) -> str:
+    """Wählt ein verfügbares Script-Modell gemäß Präferenzliste."""
+    cleaned = [_normalize_model_name(m) for m in preferences if _normalize_model_name(m)]
+    available = _discover_script_models()
+
+    if not available:
+        fallback = cleaned[0] if cleaned else DEFAULT_MODEL
+        print(f"   ⚠️ Keine Script-Modelle discoverbar. Nutze Fallback: {fallback}")
+        return fallback
+
+    for pref in cleaned:
+        if pref in available:
+            return pref
+
+    gemini_candidates = sorted(m for m in available if "gemini" in m)
+    fallback = gemini_candidates[0] if gemini_candidates else (cleaned[0] if cleaned else DEFAULT_MODEL)
+    print(f"   ⚠️ Kein bevorzugtes Script-Modell verfügbar. Nutze Discovery-Fallback: {fallback}")
+    return fallback
+
+
+def _discover_tts_models() -> set[str]:
+    """Liest verfügbare TTS-Modelle aus der Gemini API aus."""
+    discovered: set[str] = set()
+    for model in _discover_model_names():
+        if "tts" in model.lower():
+            discovered.add(model)
+    if not discovered:
+        print("   ⚠️ Keine TTS-Modelle discoverbar. Nutze konfigurierte TTS-Modelle.")
+    return discovered
 
 
 def _resolve_tts_models(preferences: list[str]) -> list[str]:
@@ -178,31 +226,7 @@ def _to_ssml(text: str) -> str:
 
 def pick_available_model(preferences: List[str]) -> str:
     """Wählt das bestmögliche Modell anhand der Präferenz-Reihenfolge."""
-    try:
-        available = list(client.models.list())
-    except Exception as e:
-        print(f"   ⚠️ Konnte Modelle nicht listen ({e}). Versuche Standard: {DEFAULT_MODEL}")
-        return DEFAULT_MODEL
-
-    blocked_tokens = ["embedding", "tts", "image", "imagen", "veo", "computer-use", "robotics", "aqa", "native-audio"]
-
-    candidates = []
-    for model in available:
-        short = model.name.split("/")[-1]
-        if any(tok in short for tok in blocked_tokens):
-            continue
-        candidates.append((short, model.name))
-
-    for pref in preferences:
-        for short, full in candidates:
-            if short == pref or short.endswith(pref):
-                return full
-
-    for short, full in candidates:
-        if "gemini" in short:
-            return full
-
-    return DEFAULT_MODEL
+    return _resolve_script_model(preferences)
 
 class PodcastGenerator:
     def __init__(self, topic):
