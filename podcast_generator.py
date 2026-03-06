@@ -47,6 +47,11 @@ TEMP_DIR = _require_env("PODCAST_TEMP_DIR")
 OUTPUT_DIR = _require_env("PODCAST_OUTPUT_DIR")
 ASSETS_DIR = _require_env("PODCAST_ASSETS_DIR")
 SCRIPT_DEFAULT_MODEL = _require_env("SCRIPT_DEFAULT_MODEL")
+TTS_DEFAULT_MODEL = os.getenv("TTS_DEFAULT_MODEL", "gemini-2.5-pro-preview-tts").strip()
+TTS_FALLBACK_MODELS = os.getenv(
+    "TTS_FALLBACK_MODELS",
+    "gemini-2.5-flash-preview-tts",
+)
 
 # Ordner erstellen
 os.makedirs(TEMP_DIR, exist_ok=True)
@@ -65,6 +70,20 @@ SCRIPT_MIN_WORDS = 650
 SCRIPT_MAX_WORDS = 800
 SCRIPT_MIN_PARAGRAPHS = 5
 SCRIPT_EXPECTED_PARAGRAPHS = 5
+
+
+def _parse_csv_models(value: str) -> list[str]:
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def _tts_model_preferences() -> list[str]:
+    ordered: list[str] = []
+    for model in [TTS_DEFAULT_MODEL, *_parse_csv_models(TTS_FALLBACK_MODELS)]:
+        if model and model not in ordered:
+            ordered.append(model)
+    if not ordered:
+        ordered = ["gemini-2.5-pro-preview-tts", "gemini-2.5-flash-preview-tts"]
+    return ordered
 
 
 def _is_rate_limited_error(err: Exception | str) -> bool:
@@ -566,14 +585,14 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
 
         _ensure_audio_tools()
 
-        model_tts = "gemini-2.5-pro-preview-tts"
+        tts_models = _tts_model_preferences()
         voice_name = "umbriel"
-        print(f"   -> Verwende TTS-Modell: {model_tts} (Stimme: {voice_name})")
+        print(f"   -> Verwende TTS-Modelle: {', '.join(tts_models)} (Stimme: {voice_name})")
 
         chunks = _chunk_text(self.script_content)
         print(f"   -> Verarbeite {len(chunks)} Text-Abschnitte...")
 
-        segments = self._tts_segments(chunks, model_tts, voice_name)
+        segments = self._tts_segments(chunks, tts_models, voice_name)
 
         if not segments:
             raise RuntimeError("TTS lieferte keine Segmente.")
@@ -699,23 +718,31 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
                 raise
         raise RuntimeError(f"Chunk {idx}: Unbekannter Fehler bei Gemini TTS")
 
-    def _tts_segments(self, chunks, model_tts, voice_name):
+    def _tts_segments(self, chunks, tts_models, voice_name):
         segments = []
         for idx, chunk in enumerate(chunks):
+            gem_err: Exception | None = None
+            for model_tts in tts_models:
+                try:
+                    seg = self._process_chunk(idx, chunk, model_tts, voice_name)
+                    segments.append(seg)
+                    gem_err = None
+                    break
+                except Exception as err:
+                    gem_err = err
+                    print(f"   ⚠️ Modell-Fallback: {model_tts} fehlgeschlagen (Chunk {idx}): {err}")
+
+            if gem_err is None:
+                continue
+
             try:
-                seg = self._process_chunk(idx, chunk, model_tts, voice_name)
+                print(f"      -> Nutze Cloud TTS mit SSML für Chunk {idx}...")
+                seg = self._generate_chunk_with_gcloud(idx, chunk)
                 segments.append(seg)
-            except Exception as gem_err:
-                if self._is_rate_limit_error(gem_err):
-                    try:
-                        print(f"      -> Nutze Cloud TTS mit SSML für Chunk {idx}...")
-                        seg = self._generate_chunk_with_gcloud(idx, chunk)
-                        segments.append(seg)
-                        continue
-                    except Exception as gc_err:
-                        print(f"   ❌ Google Cloud TTS Fehler (Fallback) bei Chunk {idx}: {gc_err}")
-                        raise
-                raise
+                continue
+            except Exception as gc_err:
+                print(f"   ❌ Google Cloud TTS Fehler (Fallback) bei Chunk {idx}: {gc_err}")
+                raise gem_err
         return segments
 
     # --------------------------------------------------------------------------
