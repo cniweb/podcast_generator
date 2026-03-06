@@ -88,6 +88,43 @@ def _tts_model_preferences() -> list[str]:
     return ordered
 
 
+def _normalize_model_name(model_name: str) -> str:
+    return (model_name or "").replace("models/", "").strip()
+
+
+def _discover_tts_models() -> set[str]:
+    """Liest verfügbare TTS-Modelle aus der Gemini API aus."""
+    try:
+        discovered: set[str] = set()
+        for model in client.models.list():
+            short = _normalize_model_name(getattr(model, "name", ""))
+            if "tts" in short.lower():
+                discovered.add(short)
+        return discovered
+    except Exception as e:
+        print(f"   ⚠️ Model Discovery fehlgeschlagen ({e}). Nutze konfigurierte TTS-Modelle.")
+        return set()
+
+
+def _resolve_tts_models(preferences: list[str]) -> list[str]:
+    """Filtert bevorzugte Modelle auf tatsächlich verfügbare TTS-Modelle."""
+    cleaned = [_normalize_model_name(m) for m in preferences if _normalize_model_name(m)]
+    available = _discover_tts_models()
+    if not available:
+        return cleaned
+
+    resolved = [m for m in cleaned if m in available]
+    dropped = [m for m in cleaned if m not in available]
+    if dropped:
+        print(f"   ⚠️ Nicht verfügbare TTS-Modelle übersprungen: {', '.join(dropped)}")
+    if resolved:
+        return resolved
+
+    discovered = sorted(available)
+    print(f"   ⚠️ Kein konfiguriertes TTS-Modell verfügbar. Nutze Discovery-Fallback: {', '.join(discovered)}")
+    return discovered
+
+
 def _is_rate_limited_error(err: Exception | str) -> bool:
     msg = str(err).lower()
     return " 429" in msg or "code 429" in msg or "too many requests" in msg or "rate" in msg
@@ -587,7 +624,7 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
 
         _ensure_audio_tools()
 
-        tts_models = _tts_model_preferences()
+        tts_models = _resolve_tts_models(_tts_model_preferences())
         voice_name = TTS_VOICE_NAME or "umbriel"
         print(f"   -> Verwende TTS-Modelle: {', '.join(tts_models)} (Stimme: {voice_name})")
 
@@ -609,7 +646,13 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
 
     def _is_rate_limit_error(self, exc: Exception) -> bool:
         msg = str(exc).lower()
-        return "429" in msg or "rate" in msg or "resource_exhausted" in msg
+        return (
+            "429" in msg
+            or "resource_exhausted" in msg
+            or "too many requests" in msg
+            or "rate limit" in msg
+            or "quota exceeded" in msg
+        )
 
     def _part_to_segment(self, part: types.Part, chunk_idx: int, cand_idx: int) -> AudioSegment:
         if not part.inline_data or not part.inline_data.data:
