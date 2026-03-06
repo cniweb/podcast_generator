@@ -52,6 +52,7 @@ TTS_FALLBACK_MODELS = os.getenv(
     "TTS_FALLBACK_MODELS",
     "gemini-2.5-flash-preview-tts",
 )
+TTS_VOICE_NAME = os.getenv("TTS_VOICE_NAME", "umbriel").strip()
 
 # Ordner erstellen
 os.makedirs(TEMP_DIR, exist_ok=True)
@@ -586,7 +587,7 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
         _ensure_audio_tools()
 
         tts_models = _tts_model_preferences()
-        voice_name = "umbriel"
+        voice_name = TTS_VOICE_NAME or "umbriel"
         print(f"   -> Verwende TTS-Modelle: {', '.join(tts_models)} (Stimme: {voice_name})")
 
         chunks = _chunk_text(self.script_content)

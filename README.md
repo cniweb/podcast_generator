@@ -79,6 +79,7 @@ PODCAST_SLOGAN="Alles, was man wissen muss..."
 SCRIPT_DEFAULT_MODEL=gemini-3.1-pro-preview
 TTS_DEFAULT_MODEL=gemini-2.5-pro-preview-tts
 TTS_FALLBACK_MODELS=gemini-2.5-flash-preview-tts
+TTS_VOICE_NAME=umbriel
 PODCAST_TEMP_DIR=temp_assets
 PODCAST_OUTPUT_DIR=finished_episodes
 PODCAST_ASSETS_DIR=assets
@@ -107,8 +108,7 @@ Ausgaben:
 
 ## Konfiguration
 
-- Stimme anpassen in [podcast_generator.py](podcast_generator.py) via `voice_name`.
-  Abschnitt: `3. STIMME`.
+- TTS per `.env`: `TTS_DEFAULT_MODEL`, `TTS_FALLBACK_MODELS`, `TTS_VOICE_NAME`.
 - Cover-Bild: `assets/cover.png` oder `assets/cover.jpg`.
 - Musik-Query-Fallbacks: zuerst themenbezogen, dann „lofi study loop“, sonst Stille.
 
