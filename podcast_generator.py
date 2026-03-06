@@ -53,6 +53,7 @@ TTS_FALLBACK_MODELS = os.getenv(
     "gemini-2.5-flash-preview-tts",
 )
 TTS_VOICE_NAME = os.getenv("TTS_VOICE_NAME", "umbriel").strip()
+GENERATE_VIDEO = os.getenv("GENERATE_VIDEO", "true").strip().lower() in {"1", "true", "yes", "on"}
 
 # Ordner erstellen
 os.makedirs(TEMP_DIR, exist_ok=True)
@@ -997,7 +998,10 @@ if __name__ == "__main__":
     bot.fetch_music()
     bot.generate_voice()
     bot.mix_audio()
-    bot.create_video()
+    if GENERATE_VIDEO:
+        bot.create_video()
+    else:
+        print("⏭️ 6. Video-Generierung übersprungen (GENERATE_VIDEO=false).")
     bot.generate_metadata()
     
     print("\n✅ ALLES ERLEDIGT!")

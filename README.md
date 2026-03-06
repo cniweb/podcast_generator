@@ -67,7 +67,7 @@ Audio, optionales Video, Transkript und Metadaten liegen dort.
 - venv wird von `run.sh`/`setup.sh` angelegt
 - `.env` mit allen Pflichtwerten
 
-## .env Beispiel (alle Pflichtfelder)
+## .env Beispiel (Pflichtfelder + optionale Schalter)
 
 ```bash
 GEMINI_API_KEY=dein_gemini_key
@@ -80,6 +80,7 @@ SCRIPT_DEFAULT_MODEL=gemini-3.1-pro-preview
 TTS_DEFAULT_MODEL=gemini-2.5-pro-preview-tts
 TTS_FALLBACK_MODELS=gemini-2.5-flash-preview-tts
 TTS_VOICE_NAME=umbriel
+GENERATE_VIDEO=true
 PODCAST_TEMP_DIR=temp_assets
 PODCAST_OUTPUT_DIR=finished_episodes
 PODCAST_ASSETS_DIR=assets
@@ -102,13 +103,14 @@ python .\podcast_generator.py
 Ausgaben:
 
 - Audio: `<PODCAST_OUTPUT_DIR>/<Thema>.mp3`
-- Video: `<PODCAST_OUTPUT_DIR>/<Thema>_video.mp4` (falls Cover im Assets-Ordner vorhanden)
+- Video (optional): `<PODCAST_OUTPUT_DIR>/<Thema>_video.mp4` (falls `GENERATE_VIDEO=true` und Cover im Assets-Ordner vorhanden)
 - Transkript: `<PODCAST_OUTPUT_DIR>/<Thema>_transcription.txt`
 - Metadaten: `<PODCAST_OUTPUT_DIR>/<Thema>_meta.json`
 
 ## Konfiguration
 
 - TTS per `.env`: `TTS_DEFAULT_MODEL`, `TTS_FALLBACK_MODELS`, `TTS_VOICE_NAME`.
+- Video-Schritt optional per `.env`: `GENERATE_VIDEO=true|false` (Default: `true`).
 - Cover-Bild: `assets/cover.png` oder `assets/cover.jpg`.
 - Musik-Query-Fallbacks: zuerst themenbezogen, dann „lofi study loop“, sonst Stille.
 
