@@ -1,133 +1,167 @@
 # AGENTS.md
 
-This guide is for agentic coding assistants working in this repo. It summarizes how
-to build, test, and follow existing code style and project rules.
+This guide is for agentic coding assistants working in this repository.
+It captures build/test commands, style rules, and repo-specific safety constraints.
 
 ## Source Of Truth
 
-- README contains the main workflow and user instructions.
-- Shell scripts: run.sh, setup.sh, ci.sh.
-- This file merges the above with local conventions in the codebase.
+- Primary docs: `README.md`.
+- Execution scripts: `run.sh`, `setup.sh`, `ci.sh`.
+- CI behavior: `.github/workflows/ci.yml`.
+- Core code: `podcast_generator.py`, helper utilities in `utils.py`, tests in `tests/`.
 
-## Build, Lint, Test
+## Workspace And Platform Notes
 
-General notes:
-- Prefer running commands from repo root.
-- Use Git Bash or WSL on Windows for .sh scripts.
-- Python 3.12+ is expected (audioop behavior).
+- Run commands from repository root.
+- On Windows, run shell scripts via Git Bash or WSL.
+- Python 3.12+ is expected locally (audioop compatibility note in scripts).
+- Repo currently contains `.venv`; prefer using it instead of global Python.
+- `run.sh` uses `.venv/bin/activate` (Unix path style).
+- `ci.sh` uses `.venv/Scripts/activate` (Windows path style).
+- If activation path fails on your platform, run equivalent commands manually.
 
-Setup:
-- ./setup.sh
-  - Validates .env and installs Python requirements.
-  - Checks for ffmpeg/ffprobe.
+## Build, Lint, And Test Commands
 
-End-to-end run:
-- ./run.sh "{topic}"
-  - Use empty topic for trend-based topic selection.
-  - Cleans temp dir, keeps outputs.
+Setup and dependency install:
+- `./setup.sh`
+  - Validates `.env` keys.
+  - Checks `ffmpeg` availability.
+  - Installs `requirements.txt`.
 
-CI checks (lint + tests):
-- ./ci.sh
-  - Installs ruff, runs ruff check, compileall, pytest.
+End-to-end podcast run:
+- `./run.sh "<Thema>"`
+- `./run.sh ""` (empty topic -> trend-based topic selection)
 
-Optional CI setup (requires .env):
-- ./ci.sh --setup
+Project CI checks:
+- `./ci.sh`
+  - Creates/uses `.venv`.
+  - Installs dependencies + `ruff==0.6.8`.
+  - Runs ruff, import sanity check, compileall, pytest, markdown lint.
 
-Single test file:
-- python -m pytest tests/test_utils.py
+Optional CI with setup checks:
+- `./ci.sh --setup`
 
-Single test by name:
-- python -m pytest tests/test_utils.py -k "test_chunk_text"
+Direct lint commands:
+- `python -m ruff check podcast_generator.py`
+- `python -m ruff check --fix podcast_generator.py`
 
-Single test (node id style):
-- python -m pytest tests/test_utils.py::test_chunk_text_splits_long_paragraph
+Syntax-only check:
+- `python -m compileall podcast_generator.py`
 
-Quick lint (ruff):
-- python -m ruff check podcast_generator.py
+Run all tests:
+- `python -m pytest -q`
 
-Auto-fix lint (ruff):
-- python -m ruff check --fix podcast_generator.py
+Single test file (important):
+- `python -m pytest tests/test_utils.py`
+- `python -m pytest tests/test_script_constraints.py`
 
-Syntax check only:
-- python -m compileall podcast_generator.py
+Single test by expression (important):
+- `python -m pytest tests/test_utils.py -k "chunk_text"`
 
-Import check (deps):
-- python - <<'PY'
-import importlib
-deps = ['google.genai','pytrends','pydub','requests','dotenv']
-for dep in deps:
-    importlib.import_module(dep)
-PY
+Single test by node id (important):
+- `python -m pytest tests/test_utils.py::test_chunk_text_splits_long_paragraph`
+- `python -m pytest tests/test_script_constraints.py::test_validate_script_constraints_success_case`
+
+Verbose failure output when debugging:
+- `python -m pytest -vv tests/test_utils.py -k "spell_out"`
+
+Markdown lint (used in `ci.sh`):
+- `python -m pymarkdown scan .`
+
+Dependency import sanity snippet:
+- `python - <<'PY'`
+- `import importlib`
+- `deps = ['google.genai', 'pytrends', 'pydub', 'requests', 'dotenv']`
+- `for dep in deps: importlib.import_module(dep)`
+- `PY`
 
 ## Environment And Secrets
 
-- Never hardcode secrets. Use .env.
-- Required .env keys:
-  - GEMINI_API_KEY, FREESOUND_API_KEY, GOOGLE_APPLICATION_CREDENTIALS
-  - PODCAST_NAME, PODCAST_SLOGAN
-  - PODCAST_TEMP_DIR, PODCAST_OUTPUT_DIR, PODCAST_ASSETS_DIR
-- Do not commit .env or credentials files.
+- Never hardcode credentials; load from `.env`.
+- Required `.env` keys:
+  - `GEMINI_API_KEY`
+  - `FREESOUND_API_KEY`
+  - `GOOGLE_APPLICATION_CREDENTIALS`
+  - `PODCAST_NAME`
+  - `PODCAST_SLOGAN`
+  - `PODCAST_TEMP_DIR`
+  - `PODCAST_OUTPUT_DIR`
+  - `PODCAST_ASSETS_DIR`
+- Do not commit `.env` or credential files.
+- Missing required env vars should fail fast with clear `RuntimeError`.
 
-## Language And Output Rules
+## Language And Output Constraints
 
-- User-facing text is German by default.
-- Generated podcast script should be spoken text only. No stage/sound cues.
-- Trend focus: DACH (DE, AT, CH). If trends fail, fall back to static topic.
+- User-facing copy and generated script content are German by default.
+- Script output should be spoken text only.
+- Do not output stage directions, sound cues, or screenplay markup.
+- Trend focus is DACH (DE, AT, CH) with fallback topic behavior.
 
 ## Code Style Guidelines
 
 General:
-- Keep diffs minimal and focused.
-- Avoid deleting user assets (assets/cover.png, assets/cover.jpg, loops).
-- Keep paths under PODCAST_* dirs stable.
-- Prefer logging warnings for recoverable errors rather than aborting.
+- Keep diffs small, focused, and minimal risk.
+- Preserve established workflow and filenames.
+- Prefer explicit logic over clever compact rewrites.
 
 Imports:
-- Standard library imports at top, then third-party, then local.
-- Keep imports explicit; avoid wildcard imports.
-- Local helpers live in utils.py and are imported directly.
+- Order: standard library, third-party, local imports.
+- Avoid wildcard imports.
+- Keep local helper imports explicit (e.g., from `utils` import specific functions).
 
 Formatting:
-- The repo uses ruff for linting; follow ruff defaults.
-- 4-space indentation, no tabs.
-- Use f-strings for string formatting where practical.
-- Keep lines readable; wrap long strings with parentheses.
+- Follow ruff expectations (`ruff check`).
+- 4-space indentation; no tabs.
+- Use readable line lengths and wrap long expressions cleanly.
+- Prefer f-strings for interpolation.
 
 Types:
-- Use type hints for public helpers and non-trivial functions.
-- Prefer built-in generics (list[str], dict[str, str]) where supported.
-- When a function accepts multiple types, be explicit (e.g., str | None).
+- Add type hints for public/non-trivial functions.
+- Prefer modern built-in generics (`list[str]`, `dict[str, str]`).
+- Use explicit unions where needed (`str | None`).
 
 Naming:
-- snake_case for functions/variables.
-- Leading underscore for internal helpers (_require_env).
-- Constants in ALL_CAPS.
-- Classes use CapWords (PodcastGenerator).
+- `snake_case` for functions, methods, variables.
+- `_leading_underscore` for internal helpers.
+- `ALL_CAPS` for module-level constants.
+- `CapWords` for classes (e.g., `PodcastGenerator`).
 
-Error Handling:
-- Validate required env vars early and fail fast with clear RuntimeError.
-- For external API calls, catch exceptions and log warnings; use safe fallback.
-- Provide actionable error messages (missing ffmpeg, missing .env keys).
+Error handling:
+- Fail fast for required prerequisites (missing env vars, missing tools).
+- For recoverable external failures, log warning and use fallback path.
+- Error messages should be actionable and specific.
 
-I/O And Paths:
-- Use os.makedirs(..., exist_ok=True) for required folders.
-- Do not delete output dir content; only clean temp dir.
-- Maintain output naming conventions ({topic}.mp3, {topic}_video.mp4, etc.).
+I/O and paths:
+- Use `os.makedirs(..., exist_ok=True)` for required directories.
+- Keep outputs under configured `PODCAST_*` directories.
+- Clean temp artifacts only; do not wipe output history.
+- Keep naming conventions stable (`<topic>.mp3`, `<topic>_video.mp4`, etc.).
 
-Testing:
-- Tests live in tests/ and use pytest.
-- conftest.py adjusts sys.path to import local modules.
-- Add tests for text utilities in utils.py.
+## Testing Expectations
 
-## Repository-Specific Rules
+- Test framework: `pytest`.
+- Tests reside in `tests/`.
+- `tests/conftest.py` adjusts import path for local modules.
+- Add/adjust tests when changing text cleanup, chunking, or validation logic in `utils.py`.
+- For bug fixes, prefer adding a focused regression test.
 
-- Use .env values; never hardcode API keys or creds.
-- Avoid stage directions in generated scripts.
-- Keep trend logic to DACH focus with fallback.
-- When unsure about a behavior change that affects output quality, ask user.
+## Repository-Specific Guardrails
 
-## Agent Behavior
+- Do not remove or overwrite user assets in `assets/` (cover images, optional loops).
+- Preserve DACH trend lookup and fallback chain behavior.
+- Keep script-constraint enforcement intact unless task explicitly changes product behavior.
+- Maintain compatibility with existing shell scripts and CI checks.
 
-- Read existing code before changing behavior.
-- Prefer small, targeted edits and document rationale in PR/commit message.
-- Avoid destructive git commands (reset --hard, checkout --).
+## Cursor/Copilot Rules
+
+- No Cursor rules were found (`.cursor/rules/` and `.cursorrules` absent).
+- No Copilot instruction file was found (`.github/copilot-instructions.md` absent).
+- If these files are added later, treat them as additional mandatory instructions.
+
+## Agent Operating Guidelines
+
+- Read relevant code before making behavior changes.
+- Prefer targeted edits over broad refactors.
+- Do not commit secrets, generated credentials, or local environment files.
+- Avoid destructive git operations (`reset --hard`, `checkout --`) unless explicitly requested.
+- If uncertain about behavior changes affecting output quality, ask for clarification.
