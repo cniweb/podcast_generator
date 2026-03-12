@@ -444,6 +444,10 @@ def _execute_pipeline(
     bot._clear_checkpoint(quiet=True)
 
 
+def _artifact_path_or_none(path: str) -> str | None:
+    return path or None
+
+
 def _parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Podcast-Generator starten")
     parser.add_argument("topic", nargs="?", help="Podcast-Thema; leer = Trend-Fallback")
@@ -505,10 +509,57 @@ class PodcastGenerator:
         self.final_audio_path = ""
         self.final_video_path = ""
         self.metadata_path = ""
+        self.run_manifest_path = ""
         self.sources = []
         self.transcript_path = ""
         self.checkpoint_path = os.path.join(TEMP_DIR, f"{self.topic_slug}_checkpoint.json")
         print(f"🚀 Starte Produktion für Thema: '{topic}'\n")
+
+    def write_run_manifest(
+        self,
+        *,
+        started_at: float,
+        finished_at: float,
+        generate_video: bool,
+        resume_enabled: bool,
+        force_restart: bool,
+        status: str,
+        error: str | None = None,
+    ):
+        manifest_path = os.path.join(OUTPUT_DIR, f"{self.topic_slug}_run.json")
+        payload = {
+            "topic": self.topic,
+            "topic_slug": self.topic_slug,
+            "podcast_name": PODCAST_NAME,
+            "status": status,
+            "started_at": started_at,
+            "finished_at": finished_at,
+            "duration_seconds": round(max(0.0, finished_at - started_at), 2),
+            "options": {
+                "generate_video": generate_video,
+                "resume_enabled": resume_enabled,
+                "force_restart": force_restart,
+            },
+            "models": {
+                "script_default": SCRIPT_DEFAULT_MODEL,
+                "tts_default": TTS_DEFAULT_MODEL,
+                "tts_fallbacks": _parse_csv_models(TTS_FALLBACK_MODELS),
+                "tts_voice": TTS_VOICE_NAME,
+            },
+            "artifacts": {
+                "audio": _artifact_path_or_none(self.final_audio_path),
+                "video": _artifact_path_or_none(self.final_video_path),
+                "script": _artifact_path_or_none(self.transcript_path),
+                "metadata": _artifact_path_or_none(self.metadata_path),
+                "checkpoint": _artifact_path_or_none(self.checkpoint_path if os.path.exists(self.checkpoint_path) else ""),
+            },
+            "sources": self.sources,
+            "error": error,
+        }
+        with open(manifest_path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+        self.run_manifest_path = manifest_path
+        log_info(f"   -> Run-Manifest gespeichert: {manifest_path}")
 
     def _write_checkpoint(self, current_step: str, status: str, completed_steps: list[str]):
         payload = {
@@ -1440,6 +1491,8 @@ if __name__ == "__main__":
     if args.resume and args.force_restart:
         raise RuntimeError("--resume und --force-restart koennen nicht gleichzeitig genutzt werden.")
 
+    run_started_at = time.time()
+
     print(f"--- {PODCAST_NAME.upper()} AUTOMATISIERUNG ---")
     _ensure_audio_tools()
     topic = (args.topic or "").strip()
@@ -1475,6 +1528,29 @@ if __name__ == "__main__":
             print(f"   ⚠️ Fehler bei Trend-Suche: {e}. Nutze Fallback.")
             topic = "Künstliche Intelligenz"
     bot = PodcastGenerator(topic)
-    _execute_pipeline(bot, GENERATE_VIDEO, resume_enabled=args.resume, force_restart=args.force_restart)
+    run_error: str | None = None
+    try:
+        _execute_pipeline(bot, GENERATE_VIDEO, resume_enabled=args.resume, force_restart=args.force_restart)
+    except Exception as exc:
+        run_error = str(exc)
+        bot.write_run_manifest(
+            started_at=run_started_at,
+            finished_at=time.time(),
+            generate_video=GENERATE_VIDEO,
+            resume_enabled=args.resume,
+            force_restart=args.force_restart,
+            status="failed",
+            error=run_error,
+        )
+        raise
+
+    bot.write_run_manifest(
+        started_at=run_started_at,
+        finished_at=time.time(),
+        generate_video=GENERATE_VIDEO,
+        resume_enabled=args.resume,
+        force_restart=args.force_restart,
+        status="completed",
+    )
     
     print("\n✅ ALLES ERLEDIGT!")

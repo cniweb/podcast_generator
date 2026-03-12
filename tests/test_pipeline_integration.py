@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 
@@ -248,3 +249,69 @@ def test_gemini_generate_content_with_retry_does_not_retry_non_retryable_errors(
         raise AssertionError("generate_with_retry should have raised")
 
     assert models.calls == 1
+
+
+def test_write_run_manifest_persists_execution_metadata(tmp_path):
+    mod = _load_partial_module()
+    podcast_generator_cls = mod["PodcastGenerator"]
+
+    mod["OUTPUT_DIR"] = str(tmp_path / "out")
+    mod["TEMP_DIR"] = str(tmp_path / "temp")
+    mod["ASSETS_DIR"] = str(tmp_path / "assets")
+    Path(mod["OUTPUT_DIR"]).mkdir(parents=True, exist_ok=True)
+    Path(mod["TEMP_DIR"]).mkdir(parents=True, exist_ok=True)
+    Path(mod["ASSETS_DIR"]).mkdir(parents=True, exist_ok=True)
+
+    bot = podcast_generator_cls("Manifest Topic")
+    bot.final_audio_path = str(Path(mod["OUTPUT_DIR"]) / "Manifest_Topic.mp3")
+    bot.metadata_path = str(Path(mod["OUTPUT_DIR"]) / "Manifest_Topic_meta.json")
+    bot.sources = ["https://example.com/source"]
+
+    bot.write_run_manifest(
+        started_at=100.0,
+        finished_at=112.5,
+        generate_video=False,
+        resume_enabled=True,
+        force_restart=False,
+        status="completed",
+    )
+
+    manifest = json.loads(Path(bot.run_manifest_path).read_text(encoding="utf-8"))
+    assert manifest["status"] == "completed"
+    assert manifest["duration_seconds"] == 12.5
+    assert manifest["options"]["resume_enabled"] is True
+    assert manifest["options"]["generate_video"] is False
+    assert manifest["artifacts"]["audio"] == bot.final_audio_path
+    assert manifest["artifacts"]["video"] is None
+    assert manifest["sources"] == ["https://example.com/source"]
+
+
+def test_write_run_manifest_records_failures(tmp_path):
+    mod = _load_partial_module()
+    podcast_generator_cls = mod["PodcastGenerator"]
+
+    mod["OUTPUT_DIR"] = str(tmp_path / "out")
+    mod["TEMP_DIR"] = str(tmp_path / "temp")
+    mod["ASSETS_DIR"] = str(tmp_path / "assets")
+    Path(mod["OUTPUT_DIR"]).mkdir(parents=True, exist_ok=True)
+    Path(mod["TEMP_DIR"]).mkdir(parents=True, exist_ok=True)
+    Path(mod["ASSETS_DIR"]).mkdir(parents=True, exist_ok=True)
+
+    bot = podcast_generator_cls("Manifest Failure")
+    Path(bot.checkpoint_path).write_text("{}", encoding="utf-8")
+
+    bot.write_run_manifest(
+        started_at=5.0,
+        finished_at=8.0,
+        generate_video=True,
+        resume_enabled=False,
+        force_restart=True,
+        status="failed",
+        error="boom",
+    )
+
+    manifest = json.loads(Path(bot.run_manifest_path).read_text(encoding="utf-8"))
+    assert manifest["status"] == "failed"
+    assert manifest["error"] == "boom"
+    assert manifest["options"]["force_restart"] is True
+    assert manifest["artifacts"]["checkpoint"] == bot.checkpoint_path

@@ -108,6 +108,7 @@ Ausgaben:
 - Video (optional): `<PODCAST_OUTPUT_DIR>/<Thema>_video.mp4` (falls `GENERATE_VIDEO=true` und Cover im Assets-Ordner vorhanden)
 - Transkript: `<PODCAST_OUTPUT_DIR>/<Thema>_transcription.txt`
 - Metadaten: `<PODCAST_OUTPUT_DIR>/<Thema>_meta.json`
+- Run-Manifest: `<PODCAST_OUTPUT_DIR>/<Thema>_run.json`
 
 ## Konfiguration
 
