@@ -93,6 +93,11 @@ def log_error(message: str):
 
 _configure_logger()
 
+
+class ResumeConsistencyError(RuntimeError):
+    """Checkpoint verweist auf unvollstaendige oder fehlende Artefakte."""
+
+
 def _require_env(var_name):
     """Liest eine benötigte Umgebungsvariable ein und bricht mit klarer Meldung ab."""
     value = os.getenv(var_name)
@@ -378,7 +383,11 @@ def _execute_pipeline(
             log_info(f"⏭️ {step_label} bereits abgeschlossen. Überspringe.")
             continue
         bot._write_checkpoint(step_key, "running", completed_steps)
-        _run_step(step_label, step_action, defer_output=defer_output)
+        try:
+            _run_step(step_label, step_action, defer_output=defer_output)
+        except Exception as exc:
+            bot._write_checkpoint_error(step_key, completed_steps, exc)
+            raise
         completed_steps.append(step_key)
         bot._write_checkpoint(step_key, "completed", completed_steps)
 
@@ -460,6 +469,29 @@ class PodcastGenerator:
             "topic_slug": self.topic_slug,
             "current_step": current_step,
             "status": status,
+            "updated_at": time.time(),
+            "last_error": None,
+            "completed_steps": completed_steps,
+            "artifacts": {
+                "script": self.transcript_path,
+                "voice": self.audio_voice_path,
+                "music": self.music_path,
+                "audio": self.final_audio_path,
+                "video": self.final_video_path,
+                "metadata": self.metadata_path,
+            },
+        }
+        with open(self.checkpoint_path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+
+    def _write_checkpoint_error(self, current_step: str, completed_steps: list[str], error: Exception):
+        payload = {
+            "topic": self.topic,
+            "topic_slug": self.topic_slug,
+            "current_step": current_step,
+            "status": "failed",
+            "updated_at": time.time(),
+            "last_error": str(error),
             "completed_steps": completed_steps,
             "artifacts": {
                 "script": self.transcript_path,
@@ -530,6 +562,26 @@ class PodcastGenerator:
             if os.path.exists(metadata_path):
                 self.metadata_path = metadata_path
 
+    def _validate_resume_state(self, completed_steps: list[str]):
+        required_artifacts = {
+            "skript": [(self.transcript_path, "Script-Datei")],
+            "musik": [(self.music_path, "Musik-Datei")],
+            "stimme": [(self.audio_voice_path, "Stimmen-Datei")],
+            "mixing": [(self.final_audio_path, "Finale Audio-Datei")],
+            "video": [(self.final_video_path, "Video-Datei")],
+            "metadaten": [
+                (self.metadata_path, "Metadaten-Datei"),
+                (self.transcript_path or os.path.join(OUTPUT_DIR, f"{self.topic_slug}_transcription.txt"), "Transkript-Datei"),
+            ],
+        }
+        missing: list[str] = []
+        for step in completed_steps:
+            for path, label in required_artifacts.get(step, []):
+                if not path or not os.path.exists(path):
+                    missing.append(f"{label} fehlt fuer Schritt '{step}'")
+        if missing:
+            raise ResumeConsistencyError("; ".join(missing))
+
     def resume_completed_steps(self, enabled: bool = True) -> list[str]:
         if not enabled:
             return []
@@ -537,8 +589,16 @@ class PodcastGenerator:
         if not checkpoint:
             return []
         completed_steps = checkpoint.get("completed_steps", [])
-        self._restore_from_checkpoint(completed_steps)
-        print(f"↩️ Checkpoint gefunden. Überspringe bereits abgeschlossene Schritte: {', '.join(completed_steps)}")
+        try:
+            self._restore_from_checkpoint(completed_steps)
+            self._validate_resume_state(completed_steps)
+        except ResumeConsistencyError as exc:
+            log_warning(f"   ⚠️ Resume-Checkpoint unbrauchbar: {exc}. Starte neu.")
+            self._clear_checkpoint(quiet=True)
+            return []
+        if checkpoint.get("last_error"):
+            log_warning(f"   ⚠️ Letzter Fehler im Checkpoint: {checkpoint['last_error']}")
+        log_info(f"↩️ Checkpoint gefunden. Überspringe bereits abgeschlossene Schritte: {', '.join(completed_steps)}")
         return completed_steps
 
     def _translate_topic_to_en(self, topic: str) -> str:

@@ -117,3 +117,32 @@ def test_execute_pipeline_force_restart_clears_before_running(monkeypatch):
     assert bot.calls[0] == ("resume", False)
     assert "video" in bot.calls
     assert any(update[0] == "video" and update[1] == "completed" for update in bot.checkpoint_updates)
+
+
+def test_execute_pipeline_writes_failed_checkpoint_on_step_error(monkeypatch):
+    mod = _load_partial_module()
+    execute_pipeline = mod["_execute_pipeline"]
+
+    class _FailingBot(_RecordingBot):
+        def __init__(self):
+            super().__init__()
+            self.failed = []
+
+        def _write_checkpoint_error(self, current_step: str, completed_steps: list[str], error: Exception):
+            self.failed.append((current_step, list(completed_steps), str(error)))
+
+        def generate_script(self):
+            raise RuntimeError("script boom")
+
+    monkeypatch.setitem(mod, "_run_step", lambda label, action, spinner_after=10.0, defer_output=False: action())
+
+    bot = _FailingBot()
+
+    try:
+        execute_pipeline(bot, generate_video=False, resume_enabled=False, force_restart=False)
+    except RuntimeError as exc:
+        assert str(exc) == "script boom"
+    else:
+        raise AssertionError("pipeline should have raised")
+
+    assert bot.failed == [("skript", ["trends"], "script boom")]

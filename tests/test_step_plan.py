@@ -133,6 +133,35 @@ def test_resume_completed_steps_restores_checkpoint_artifacts(tmp_path):
     assert bot.metadata_path == str(metadata_path)
 
 
+def test_resume_invalid_checkpoint_is_discarded_when_artifacts_missing(tmp_path):
+    mod = _load_partial_module()
+    podcast_generator_cls = mod["PodcastGenerator"]
+
+    mod["TEMP_DIR"] = str(tmp_path / "temp")
+    mod["OUTPUT_DIR"] = str(tmp_path / "out")
+    mod["ASSETS_DIR"] = str(tmp_path / "assets")
+    os.makedirs(mod["TEMP_DIR"], exist_ok=True)
+    os.makedirs(mod["OUTPUT_DIR"], exist_ok=True)
+    os.makedirs(mod["ASSETS_DIR"], exist_ok=True)
+
+    bot = podcast_generator_cls("Broken Resume")
+    checkpoint_payload = {
+        "topic": bot.topic,
+        "topic_slug": bot.topic_slug,
+        "current_step": "mixing",
+        "status": "failed",
+        "last_error": "voice generation failed",
+        "completed_steps": ["skript", "stimme"],
+        "artifacts": {},
+    }
+    Path(bot.checkpoint_path).write_text(json.dumps(checkpoint_payload), encoding="utf-8")
+
+    completed = bot.resume_completed_steps()
+
+    assert completed == []
+    assert not Path(bot.checkpoint_path).exists()
+
+
 def test_parse_cli_args_supports_resume_and_force_restart_flags():
     mod = _load_partial_module()
     parse_cli_args = mod["_parse_cli_args"]
