@@ -359,6 +359,35 @@ def _step_key(step_name: str) -> str:
     return step_name.strip().lower()
 
 
+def _execute_pipeline(
+    bot: "PodcastGenerator",
+    generate_video: bool,
+    resume_enabled: bool = False,
+    force_restart: bool = False,
+):
+    if force_restart:
+        bot._clear_checkpoint()
+    completed_steps = bot.resume_completed_steps(enabled=resume_enabled)
+
+    step_plan = _build_step_plan(bot, generate_video)
+    total_steps = len(step_plan)
+    for idx, (step_name, step_action, defer_output) in enumerate(step_plan, start=1):
+        step_key = _step_key(step_name)
+        step_label = f"Schritt {idx}/{total_steps} ({step_name})"
+        if step_key in completed_steps:
+            log_info(f"⏭️ {step_label} bereits abgeschlossen. Überspringe.")
+            continue
+        bot._write_checkpoint(step_key, "running", completed_steps)
+        _run_step(step_label, step_action, defer_output=defer_output)
+        completed_steps.append(step_key)
+        bot._write_checkpoint(step_key, "completed", completed_steps)
+
+    if not generate_video:
+        log_info("⏭️ Videoschritt deaktiviert (GENERATE_VIDEO=false).")
+
+    bot._clear_checkpoint(quiet=True)
+
+
 def _parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Podcast-Generator starten")
     parser.add_argument("topic", nargs="?", help="Podcast-Thema; leer = Trend-Fallback")
@@ -1346,26 +1375,6 @@ if __name__ == "__main__":
             print(f"   ⚠️ Fehler bei Trend-Suche: {e}. Nutze Fallback.")
             topic = "Künstliche Intelligenz"
     bot = PodcastGenerator(topic)
-    if args.force_restart:
-        bot._clear_checkpoint()
-    completed_steps = bot.resume_completed_steps(enabled=args.resume)
-
-    step_plan = _build_step_plan(bot, GENERATE_VIDEO)
-    total_steps = len(step_plan)
-    for idx, (step_name, step_action, defer_output) in enumerate(step_plan, start=1):
-        step_key = _step_key(step_name)
-        step_label = f"Schritt {idx}/{total_steps} ({step_name})"
-        if step_key in completed_steps:
-            print(f"⏭️ {step_label} bereits abgeschlossen. Überspringe.")
-            continue
-        bot._write_checkpoint(step_key, "running", completed_steps)
-        _run_step(step_label, step_action, defer_output=defer_output)
-        completed_steps.append(step_key)
-        bot._write_checkpoint(step_key, "completed", completed_steps)
-
-    if not GENERATE_VIDEO:
-        print("⏭️ Videoschritt deaktiviert (GENERATE_VIDEO=false).")
-
-    bot._clear_checkpoint()
+    _execute_pipeline(bot, GENERATE_VIDEO, resume_enabled=args.resume, force_restart=args.force_restart)
     
     print("\n✅ ALLES ERLEDIGT!")
