@@ -143,6 +143,10 @@ SCRIPT_MAX_WORDS = 800
 SCRIPT_MIN_PARAGRAPHS = 5
 SCRIPT_EXPECTED_PARAGRAPHS = 5
 _MODEL_NAMES_CACHE: set[str] | None = None
+HTTP_TIMEOUT_SECONDS = 20
+HTTP_RETRY_ATTEMPTS = 3
+GEMINI_RETRY_ATTEMPTS = 3
+GEMINI_RETRY_BASE_DELAY = 2
 
 
 def _parse_csv_models(value: str) -> list[str]:
@@ -152,6 +156,49 @@ def _parse_csv_models(value: str) -> list[str]:
 def _slugify_filename(value: str) -> str:
     slug = re.sub(r"[^A-Za-z0-9._-]+", "_", value.strip())
     return slug.strip("_") or "podcast_run"
+
+
+def _retry_delay(attempt: int, base_delay: float = 2.0) -> float:
+    return base_delay * (2 ** (attempt - 1))
+
+
+def _request_with_retry(url: str, **kwargs) -> requests.Response:
+    timeout = kwargs.pop("timeout", HTTP_TIMEOUT_SECONDS)
+    last_error: Exception | None = None
+    for attempt in range(1, HTTP_RETRY_ATTEMPTS + 1):
+        try:
+            response = requests.get(url, timeout=timeout, **kwargs)
+            if response.status_code >= 500 or response.status_code == 429:
+                raise RuntimeError(f"HTTP {response.status_code}")
+            return response
+        except Exception as exc:
+            last_error = exc
+            if attempt == HTTP_RETRY_ATTEMPTS:
+                break
+            delay = _retry_delay(attempt, 1.5)
+            log_warning(f"   ⚠️ HTTP-Versuch {attempt}/{HTTP_RETRY_ATTEMPTS} fehlgeschlagen ({exc}), warte {delay:.1f}s...")
+            time.sleep(delay)
+    raise RuntimeError(f"HTTP-Anfrage fehlgeschlagen: {last_error}")
+
+
+def _gemini_generate_content_with_retry(*, model: str, contents, config=None):
+    last_error: Exception | None = None
+    for attempt in range(1, GEMINI_RETRY_ATTEMPTS + 1):
+        try:
+            if config is None:
+                return client.models.generate_content(model=model, contents=contents)
+            return client.models.generate_content(model=model, contents=contents, config=config)
+        except Exception as exc:
+            last_error = exc
+            retryable = _is_rate_limited_error(exc) or "timeout" in str(exc).lower() or "503" in str(exc)
+            if not retryable or attempt == GEMINI_RETRY_ATTEMPTS:
+                break
+            delay = _retry_delay(attempt, GEMINI_RETRY_BASE_DELAY)
+            log_warning(
+                f"   ⚠️ Gemini-Versuch {attempt}/{GEMINI_RETRY_ATTEMPTS} fuer Modell {model} fehlgeschlagen ({exc}), warte {delay:.1f}s..."
+            )
+            time.sleep(delay)
+    raise RuntimeError(f"Gemini-Aufruf fehlgeschlagen ({model}): {last_error}")
 
 
 def _tts_model_preferences() -> list[str]:
@@ -609,10 +656,7 @@ class PodcastGenerator:
             f"{topic}"
         )
         try:
-            resp = client.models.generate_content(
-                model=DEFAULT_MODEL,
-                contents=prompt,
-            )
+            resp = _gemini_generate_content_with_retry(model=DEFAULT_MODEL, contents=prompt)
             translated = (resp.text or "").strip().replace("\n", " ")
             return translated or topic
         except Exception as exc:
@@ -642,7 +686,7 @@ class PodcastGenerator:
         )
 
         try:
-            resp = client.models.generate_content(model=model_name, contents=prompt)
+            resp = _gemini_generate_content_with_retry(model=model_name, contents=prompt)
             raw = resp.text or ""
 
             def _extract_json(candidate: str) -> str | None:
@@ -756,10 +800,10 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
             raw_text = ""
             for attempt in range(1, attempts + 1):
                 if attempt == 1:
-                    response = client.models.generate_content(model=model_name, contents=prompt)
+                    response = _gemini_generate_content_with_retry(model=model_name, contents=prompt)
                 else:
                     print(f"   ⚠️  Skript verletzt Constraints. Versuch {attempt}/{attempts}...")
-                    response = client.models.generate_content(
+                    response = _gemini_generate_content_with_retry(
                         model=model_name,
                         contents=fixup_prompt.format(draft=raw_text),
                     )
@@ -965,17 +1009,17 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
                     "sort": "rating_desc",
                     "filter": "duration:[60 TO 300]"
                 }
-                resp = requests.get(url, params=params)
+                resp = _request_with_retry(url, params=params)
                 data = resp.json()
                 if data.get("results"):
                     track = data["results"][0]
                     track_id = track["id"]
                     detail_url = f"https://freesound.org/apiv2/sounds/{track_id}/"
-                    d_r = requests.get(detail_url, params={"token": FREESOUND_API_KEY})
+                    d_r = _request_with_retry(detail_url, params={"token": FREESOUND_API_KEY})
                     track_details = d_r.json()
                     preview_url = track_details["previews"]["preview-hq-mp3"]
                     print(f"   -> Lade herunter: {track['name']}")
-                    mp3_r = requests.get(preview_url)
+                    mp3_r = _request_with_retry(preview_url)
                     self.music_path = os.path.join(TEMP_DIR, f"{self.topic_slug}_music_download.mp3")
                     with open(self.music_path, "wb") as f:
                         f.write(mp3_r.content)
@@ -1093,11 +1137,7 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
             ),
         )
 
-        resp = client.models.generate_content(
-            model=model_tts,
-            contents=[content],
-            config=cfg,
-        )
+        resp = _gemini_generate_content_with_retry(model=model_tts, contents=[content], config=cfg)
         for cand_idx, cand in enumerate(resp.candidates or []):
             for part in cand.content.parts or []:
                 try:
@@ -1361,7 +1401,7 @@ def _search_rss(country_code, debug_today):
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36"
     }
     try:
-        resp = requests.get(url, headers=headers, timeout=10)
+        resp = _request_with_retry(url, headers=headers, timeout=10)
         if resp.status_code != 200:
             debug_today[f"{geo}-rss"] = f"rss Fehler: HTTP {resp.status_code}"
             return None

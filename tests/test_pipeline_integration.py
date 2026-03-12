@@ -146,3 +146,105 @@ def test_execute_pipeline_writes_failed_checkpoint_on_step_error(monkeypatch):
         raise AssertionError("pipeline should have raised")
 
     assert bot.failed == [("skript", ["trends"], "script boom")]
+
+
+def test_request_with_retry_retries_until_success(monkeypatch):
+    mod = _load_partial_module()
+    request_with_retry = mod["_request_with_retry"]
+
+    attempts = {"count": 0}
+
+    class _Resp:
+        def __init__(self, status_code):
+            self.status_code = status_code
+
+    def fake_get(url, timeout=0, **kwargs):
+        attempts["count"] += 1
+        if attempts["count"] < 3:
+            raise RuntimeError("temporary network issue")
+        return _Resp(200)
+
+    monkeypatch.setattr(mod["requests"], "get", fake_get)
+    monkeypatch.setattr(mod["time"], "sleep", lambda *_args: None)
+
+    response = request_with_retry("https://example.com")
+
+    assert response.status_code == 200
+    assert attempts["count"] == 3
+
+
+def test_request_with_retry_raises_after_exhausting_retryable_http_status(monkeypatch):
+    mod = _load_partial_module()
+    request_with_retry = mod["_request_with_retry"]
+
+    attempts = {"count": 0}
+
+    class _Resp:
+        def __init__(self, status_code):
+            self.status_code = status_code
+
+    def fake_get(url, timeout=0, **kwargs):
+        attempts["count"] += 1
+        return _Resp(503)
+
+    monkeypatch.setattr(mod["requests"], "get", fake_get)
+    monkeypatch.setattr(mod["time"], "sleep", lambda *_args: None)
+
+    try:
+        request_with_retry("https://example.com")
+    except RuntimeError as exc:
+        assert "HTTP-Anfrage fehlgeschlagen" in str(exc)
+    else:
+        raise AssertionError("request_with_retry should have raised")
+
+    assert attempts["count"] == mod["HTTP_RETRY_ATTEMPTS"]
+
+
+def test_gemini_generate_content_with_retry_retries_retryable_errors(monkeypatch):
+    mod = _load_partial_module()
+    generate_with_retry = mod["_gemini_generate_content_with_retry"]
+
+    class _Models:
+        def __init__(self):
+            self.calls = 0
+
+        def generate_content(self, **kwargs):
+            self.calls += 1
+            if self.calls < 3:
+                raise RuntimeError("429 rate limit")
+            return "ok"
+
+    models = _Models()
+    monkeypatch.setattr(mod["client"], "models", models)
+    monkeypatch.setattr(mod["time"], "sleep", lambda *_args: None)
+
+    response = generate_with_retry(model="gemini-test", contents="prompt")
+
+    assert response == "ok"
+    assert models.calls == 3
+
+
+def test_gemini_generate_content_with_retry_does_not_retry_non_retryable_errors(monkeypatch):
+    mod = _load_partial_module()
+    generate_with_retry = mod["_gemini_generate_content_with_retry"]
+
+    class _Models:
+        def __init__(self):
+            self.calls = 0
+
+        def generate_content(self, **kwargs):
+            self.calls += 1
+            raise RuntimeError("400 bad request")
+
+    models = _Models()
+    monkeypatch.setattr(mod["client"], "models", models)
+    monkeypatch.setattr(mod["time"], "sleep", lambda *_args: None)
+
+    try:
+        generate_with_retry(model="gemini-test", contents="prompt")
+    except RuntimeError as exc:
+        assert "Gemini-Aufruf fehlgeschlagen" in str(exc)
+    else:
+        raise AssertionError("generate_with_retry should have raised")
+
+    assert models.calls == 1
