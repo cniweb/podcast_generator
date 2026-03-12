@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 from pathlib import Path
@@ -79,3 +80,54 @@ def test_build_step_plan_renumbers_when_video_disabled():
     names = [entry[0] for entry in plan]
     assert names == ["Trends", "Skript", "Musik", "Stimme", "Mixing", "Metadaten"]
     assert len(plan) == 6
+
+
+def test_slugify_filename_normalizes_topic():
+    mod = _load_partial_module()
+    slugify = mod["_slugify_filename"]
+
+    assert slugify("Coinkite Coldcard Q Hardware Wallet") == "Coinkite_Coldcard_Q_Hardware_Wallet"
+    assert slugify("  !!!  ") == "podcast_run"
+
+
+def test_resume_completed_steps_restores_checkpoint_artifacts(tmp_path):
+    mod = _load_partial_module()
+    podcast_generator_cls = mod["PodcastGenerator"]
+
+    mod["TEMP_DIR"] = str(tmp_path / "temp")
+    mod["OUTPUT_DIR"] = str(tmp_path / "out")
+    mod["ASSETS_DIR"] = str(tmp_path / "assets")
+    os.makedirs(mod["TEMP_DIR"], exist_ok=True)
+    os.makedirs(mod["OUTPUT_DIR"], exist_ok=True)
+    os.makedirs(mod["ASSETS_DIR"], exist_ok=True)
+
+    bot = podcast_generator_cls("Resume Topic")
+
+    script_path = Path(mod["TEMP_DIR"]) / f"{bot.topic_slug}_script.txt"
+    voice_path = Path(mod["TEMP_DIR"]) / f"{bot.topic_slug}_voice_raw.mp3"
+    audio_path = Path(mod["OUTPUT_DIR"]) / f"{bot.topic_slug}.mp3"
+    metadata_path = Path(mod["OUTPUT_DIR"]) / f"{bot.topic_slug}_meta.json"
+
+    script_path.write_text("Beispielskript", encoding="utf-8")
+    voice_path.write_bytes(b"voice")
+    audio_path.write_bytes(b"audio")
+    metadata_path.write_text("{}", encoding="utf-8")
+
+    checkpoint_payload = {
+        "topic": bot.topic,
+        "topic_slug": bot.topic_slug,
+        "current_step": "mixing",
+        "status": "completed",
+        "completed_steps": ["skript", "stimme", "mixing", "metadaten"],
+        "artifacts": {},
+    }
+    Path(bot.checkpoint_path).write_text(json.dumps(checkpoint_payload), encoding="utf-8")
+
+    completed = bot.resume_completed_steps()
+
+    assert completed == ["skript", "stimme", "mixing", "metadaten"]
+    assert bot.transcript_path == str(script_path)
+    assert bot.script_content == "Beispielskript"
+    assert bot.audio_voice_path == str(voice_path)
+    assert bot.final_audio_path == str(audio_path)
+    assert bot.metadata_path == str(metadata_path)

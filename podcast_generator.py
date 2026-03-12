@@ -107,6 +107,11 @@ def _parse_csv_models(value: str) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
+def _slugify_filename(value: str) -> str:
+    slug = re.sub(r"[^A-Za-z0-9._-]+", "_", value.strip())
+    return slug.strip("_") or "podcast_run"
+
+
 def _tts_model_preferences() -> list[str]:
     ordered: list[str] = []
     for model in [TTS_DEFAULT_MODEL, *_parse_csv_models(TTS_FALLBACK_MODELS)]:
@@ -313,6 +318,10 @@ def _build_step_plan(bot: "PodcastGenerator", generate_video: bool) -> list[tupl
     return plan
 
 
+def _step_key(step_name: str) -> str:
+    return step_name.strip().lower()
+
+
 def _to_ssml(text: str) -> str:
     """Baut SSML aus Klarschrift und wandelt *Wort* in <emphasis> um."""
     def _escape_ssml(value: str) -> str:
@@ -351,14 +360,100 @@ class PodcastGenerator:
     def __init__(self, topic):
         """Kapselt den End-to-End-Podcast-Flow für ein bestimmtes Thema."""
         self.topic = topic
+        self.topic_slug = _slugify_filename(topic.replace(" ", "_"))
         self.script_content = ""
         self.audio_voice_path = ""
         self.music_path = ""
         self.final_audio_path = ""
         self.final_video_path = ""
+        self.metadata_path = ""
         self.sources = []
         self.transcript_path = ""
+        self.checkpoint_path = os.path.join(TEMP_DIR, f"{self.topic_slug}_checkpoint.json")
         print(f"🚀 Starte Produktion für Thema: '{topic}'\n")
+
+    def _write_checkpoint(self, current_step: str, status: str, completed_steps: list[str]):
+        payload = {
+            "topic": self.topic,
+            "topic_slug": self.topic_slug,
+            "current_step": current_step,
+            "status": status,
+            "completed_steps": completed_steps,
+            "artifacts": {
+                "script": self.transcript_path,
+                "voice": self.audio_voice_path,
+                "music": self.music_path,
+                "audio": self.final_audio_path,
+                "video": self.final_video_path,
+                "metadata": self.metadata_path,
+            },
+        }
+        with open(self.checkpoint_path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+
+    def _load_checkpoint(self) -> dict | None:
+        if not os.path.exists(self.checkpoint_path):
+            return None
+        try:
+            with open(self.checkpoint_path, encoding="utf-8") as f:
+                data = json.load(f)
+            if data.get("topic") != self.topic:
+                return None
+            return data
+        except Exception as e:
+            print(f"   ⚠️ Checkpoint konnte nicht geladen werden: {e}")
+            return None
+
+    def _clear_checkpoint(self):
+        if os.path.exists(self.checkpoint_path):
+            os.remove(self.checkpoint_path)
+
+    def _restore_from_checkpoint(self, completed_steps: list[str]):
+        if "skript" in completed_steps and not self.transcript_path:
+            script_path = os.path.join(TEMP_DIR, f"{self.topic_slug}_script.txt")
+            if os.path.exists(script_path):
+                with open(script_path, encoding="utf-8") as f:
+                    self.script_content = f.read()
+                self.transcript_path = script_path
+
+        if "musik" in completed_steps and not self.music_path:
+            for candidate in (
+                os.path.join(ASSETS_DIR, "background_loop.mp3"),
+                os.path.join(TEMP_DIR, f"{self.topic_slug}_music_download.mp3"),
+                os.path.join(TEMP_DIR, f"{self.topic_slug}_silence.mp3"),
+            ):
+                if os.path.exists(candidate):
+                    self.music_path = candidate
+                    break
+
+        if "stimme" in completed_steps and not self.audio_voice_path:
+            voice_path = os.path.join(TEMP_DIR, f"{self.topic_slug}_voice_raw.mp3")
+            if os.path.exists(voice_path):
+                self.audio_voice_path = voice_path
+
+        if "mixing" in completed_steps and not self.final_audio_path:
+            audio_path = os.path.join(OUTPUT_DIR, f"{self.topic_slug}.mp3")
+            if os.path.exists(audio_path):
+                self.final_audio_path = audio_path
+
+        if "video" in completed_steps and not self.final_video_path:
+            video_path = os.path.join(OUTPUT_DIR, f"{self.topic_slug}_video.mp4")
+            if os.path.exists(video_path):
+                self.final_video_path = video_path
+
+        if "metadaten" in completed_steps and not self.metadata_path:
+            metadata_path = os.path.join(OUTPUT_DIR, f"{self.topic_slug}_meta.json")
+            if os.path.exists(metadata_path):
+                self.metadata_path = metadata_path
+
+    def resume_completed_steps(self) -> list[str]:
+        checkpoint = self._load_checkpoint()
+        if not checkpoint:
+            return []
+        completed_steps = checkpoint.get("completed_steps", [])
+        self._restore_from_checkpoint(completed_steps)
+        print(f"↩️ Checkpoint gefunden. Überspringe bereits abgeschlossene Schritte: {', '.join(completed_steps)}")
+        return completed_steps
 
     def _translate_topic_to_en(self, topic: str) -> str:
         """Übersetzt das Thema knapp ins Englische, falls Freesound-Suche hilft."""
@@ -585,7 +680,7 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
                     + " | ".join(last_errors)
                 )
 
-            self.transcript_path = f"{TEMP_DIR}/script.txt"
+            self.transcript_path = os.path.join(TEMP_DIR, f"{self.topic_slug}_script.txt")
             with open(self.transcript_path, "w", encoding="utf-8") as f:
                 f.write(self.script_content)
 
@@ -735,7 +830,7 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
                     preview_url = track_details["previews"]["preview-hq-mp3"]
                     print(f"   -> Lade herunter: {track['name']}")
                     mp3_r = requests.get(preview_url)
-                    self.music_path = f"{TEMP_DIR}/music_download.mp3"
+                    self.music_path = os.path.join(TEMP_DIR, f"{self.topic_slug}_music_download.mp3")
                     with open(self.music_path, "wb") as f:
                         f.write(mp3_r.content)
                     return True
@@ -751,7 +846,7 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
                 return
 
             print("   -> Nichts gefunden. Nutze Stille.")
-            self.music_path = f"{TEMP_DIR}/silence.mp3"
+            self.music_path = os.path.join(TEMP_DIR, f"{self.topic_slug}_silence.mp3")
             AudioSegment.silent(duration=10000).export(self.music_path, format="mp3")
 
         except Exception as e:
@@ -783,7 +878,7 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
         for seg in segments[1:]:
             final_voice = final_voice.append(seg, crossfade=100)
 
-        self.audio_voice_path = f"{TEMP_DIR}/voice_raw.mp3"
+        self.audio_voice_path = os.path.join(TEMP_DIR, f"{self.topic_slug}_voice_raw.mp3")
         final_voice.export(self.audio_voice_path, format="mp3")
         print("   -> Sprachdatei erstellt.")
 
@@ -960,7 +1055,7 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
         else:
             final = voice
 
-        filename = f"{self.topic.replace(' ', '_')}.mp3"
+        filename = f"{self.topic_slug}.mp3"
         self.final_audio_path = os.path.join(OUTPUT_DIR, filename)
         final.export(self.final_audio_path, format="mp3", bitrate="192k")
         print(f"   -> Audio fertig: {self.final_audio_path}")
@@ -982,7 +1077,7 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
             print(f"   ⚠️ Kein Cover gefunden (weder .png noch .jpg in {ASSETS_DIR}).")
             return
 
-        video_filename = f"{self.topic.replace(' ', '_')}_video.mp4"
+        video_filename = f"{self.topic_slug}_video.mp4"
         self.final_video_path = os.path.join(OUTPUT_DIR, video_filename)
 
         cmd = [
@@ -1010,7 +1105,7 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
         """Speichert Transkript, Titel/Beschreibung und Pfade zu Audio/Video."""
         print("📄 7. Metadaten...")
         transcription_output_path = os.path.join(
-            OUTPUT_DIR, f"{self.topic.replace(' ', '_')}_transcription.txt"
+            OUTPUT_DIR, f"{self.topic_slug}_transcription.txt"
         )
 
         with open(transcription_output_path, "w", encoding="utf-8") as f:
@@ -1032,9 +1127,10 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
             "transcript_file": transcription_output_path,
         }
         # ensure_ascii=False, damit Umlaute in title/description lesbar bleiben
-        meta_output_path = f"{OUTPUT_DIR}/{self.topic.replace(' ', '_')}_meta.json"
+        meta_output_path = os.path.join(OUTPUT_DIR, f"{self.topic_slug}_meta.json")
         with open(meta_output_path, "w", encoding="utf-8") as f:
             json.dump(meta, f, ensure_ascii=False, indent=4)
+        self.metadata_path = meta_output_path
         print(f"   -> Transkript gespeichert: {transcription_output_path}")
         print(f"   -> Metadaten gespeichert: {meta_output_path}")
 
@@ -1184,13 +1280,24 @@ if __name__ == "__main__":
             print(f"   ⚠️ Fehler bei Trend-Suche: {e}. Nutze Fallback.")
             topic = "Künstliche Intelligenz"
     bot = PodcastGenerator(topic)
+    completed_steps = bot.resume_completed_steps()
 
     step_plan = _build_step_plan(bot, GENERATE_VIDEO)
     total_steps = len(step_plan)
     for idx, (step_name, step_action, defer_output) in enumerate(step_plan, start=1):
-        _run_step(f"Schritt {idx}/{total_steps} ({step_name})", step_action, defer_output=defer_output)
+        step_key = _step_key(step_name)
+        step_label = f"Schritt {idx}/{total_steps} ({step_name})"
+        if step_key in completed_steps:
+            print(f"⏭️ {step_label} bereits abgeschlossen. Überspringe.")
+            continue
+        bot._write_checkpoint(step_key, "running", completed_steps)
+        _run_step(step_label, step_action, defer_output=defer_output)
+        completed_steps.append(step_key)
+        bot._write_checkpoint(step_key, "completed", completed_steps)
 
     if not GENERATE_VIDEO:
         print("⏭️ Videoschritt deaktiviert (GENERATE_VIDEO=false).")
+
+    bot._clear_checkpoint()
     
     print("\n✅ ALLES ERLEDIGT!")

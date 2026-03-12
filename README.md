@@ -111,6 +111,7 @@ Ausgaben:
 
 - TTS per `.env`: `TTS_DEFAULT_MODEL`, `TTS_FALLBACK_MODELS`, `TTS_VOICE_NAME`.
 - Video-Schritt optional per `.env`: `GENERATE_VIDEO=true|false` (Default: `true`).
+- Unterbrechungen: Der Generator schreibt einen Checkpoint in `temp_assets/` und setzt beim nächsten Start mit gleichem Thema ab bereits abgeschlossenen Schritten fort.
 - Cover-Bild: `assets/cover.png` oder `assets/cover.jpg`.
 - Musik-Query-Fallbacks: zuerst themenbezogen, dann „lofi study loop“, sonst Stille.
 
