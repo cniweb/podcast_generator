@@ -8,14 +8,41 @@ YELLOW='\033[1;33m'
 NC='\033[0m'
 
 # 1. PARAMETER (Thema optional; wenn leer -> Trends) und Hilfe
-if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
-    echo "Nutzung: ./run.sh [Thema]"
-    echo "Beispiel: ./run.sh \"Schwarze Löcher\""
-    echo "Ohne Thema wird der aktuelle Top-Trend aus Google Trends (Deutschland) genutzt."
-    exit 0
+RESUME_FLAG=""
+FORCE_RESTART_FLAG=""
+TOPIC=""
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --help|-h)
+            echo "Nutzung: ./run.sh [--resume|--force-restart] [Thema]"
+            echo "Beispiel: ./run.sh --resume \"Schwarze Löcher\""
+            echo "Beispiel: ./run.sh --force-restart \"Schwarze Löcher\""
+            echo "Ohne Thema wird der aktuelle Top-Trend aus Google Trends (Deutschland) genutzt."
+            exit 0
+            ;;
+        --resume)
+            RESUME_FLAG="--resume"
+            ;;
+        --force-restart)
+            FORCE_RESTART_FLAG="--force-restart"
+            ;;
+        *)
+            if [ -n "$TOPIC" ]; then
+                echo -e "${RED}Fehler: Mehrere Themen wurden uebergeben. Bitte Thema in Anfuehrungszeichen setzen.${NC}"
+                exit 1
+            fi
+            TOPIC="$1"
+            ;;
+    esac
+    shift
+done
+
+if [ -n "$RESUME_FLAG" ] && [ -n "$FORCE_RESTART_FLAG" ]; then
+    echo -e "${RED}Fehler: --resume und --force-restart koennen nicht kombiniert werden.${NC}"
+    exit 1
 fi
 
-TOPIC="$1"
 SCRIPT_FILE="podcast_generator.py"
 ENV_FILE=".env"
 PYTHON_BIN=${PYTHON_BIN:-python3}
@@ -69,8 +96,15 @@ fi
 
 # 3c. Ordner sicherstellen; Temp leeren, Output behalten
 mkdir -p "$PODCAST_TEMP_DIR" "$PODCAST_OUTPUT_DIR"
-echo -e "${YELLOW}Leere $PODCAST_TEMP_DIR...${NC}"
-find "$PODCAST_TEMP_DIR" -mindepth 1 -delete
+if [ -n "$FORCE_RESTART_FLAG" ]; then
+    echo -e "${YELLOW}Leere $PODCAST_TEMP_DIR fuer kompletten Neustart...${NC}"
+    find "$PODCAST_TEMP_DIR" -mindepth 1 -delete
+elif [ -n "$RESUME_FLAG" ]; then
+    echo -e "${YELLOW}Behalte $PODCAST_TEMP_DIR fuer Resume bei...${NC}"
+else
+    echo -e "${YELLOW}Leere $PODCAST_TEMP_DIR...${NC}"
+    find "$PODCAST_TEMP_DIR" -mindepth 1 -delete
+fi
 
 # 4. VIRTUAL ENVIRONMENT (.venv) SETUP
 if [ ! -d ".venv" ]; then
@@ -111,7 +145,7 @@ printf "\n%b🚀 Starte %s Generator mit Thema:%b\n'%s'\n\n" "$GREEN" "$PODCAST_
 echo "------------------------------------------------"
 
 # Wir pipen das Thema direkt in das Python-Skript, da dieses 'input()' verwendet.
-echo "$TOPIC" | python3 "$SCRIPT_FILE"
+python3 "$SCRIPT_FILE" $RESUME_FLAG $FORCE_RESTART_FLAG "$TOPIC"
 
 # Deaktivieren (optional, da Skript hier endet)
 if command -v deactivate >/dev/null 2>&1; then

@@ -131,3 +131,18 @@ def test_resume_completed_steps_restores_checkpoint_artifacts(tmp_path):
     assert bot.audio_voice_path == str(voice_path)
     assert bot.final_audio_path == str(audio_path)
     assert bot.metadata_path == str(metadata_path)
+
+
+def test_parse_cli_args_supports_resume_and_force_restart_flags():
+    mod = _load_partial_module()
+    parse_cli_args = mod["_parse_cli_args"]
+
+    args = parse_cli_args(["--resume", "Mein Thema"])
+    assert args.resume is True
+    assert args.force_restart is False
+    assert args.topic == "Mein Thema"
+
+    args = parse_cli_args(["--force-restart"])
+    assert args.resume is False
+    assert args.force_restart is True
+    assert args.topic is None

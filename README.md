@@ -92,6 +92,8 @@ PODCAST_ASSETS_DIR=assets
 chmod +x run.sh setup.sh
 ./setup.sh                            # einmalig, prüft .env/ffmpeg/requirements
 ./run.sh "Regieassistenz im Theater"  # erzeugt Audio/Video/Transkript/Metadaten
+./run.sh --resume "Regieassistenz im Theater"  # setzt einen abgebrochenen Lauf fort
+./run.sh --force-restart "Regieassistenz im Theater"  # ignoriert vorhandene Checkpoints
 ```
 
 Windows (PowerShell, ohne Bash):
@@ -112,6 +114,7 @@ Ausgaben:
 - TTS per `.env`: `TTS_DEFAULT_MODEL`, `TTS_FALLBACK_MODELS`, `TTS_VOICE_NAME`.
 - Video-Schritt optional per `.env`: `GENERATE_VIDEO=true|false` (Default: `true`).
 - Unterbrechungen: Der Generator schreibt einen Checkpoint in `temp_assets/` und setzt beim nächsten Start mit gleichem Thema ab bereits abgeschlossenen Schritten fort.
+- Resume-Steuerung: `--resume` setzt Checkpoints bewusst fort, `--force-restart` verwirft sie und startet sauber neu.
 - Cover-Bild: `assets/cover.png` oder `assets/cover.jpg`.
 - Musik-Query-Fallbacks: zuerst themenbezogen, dann „lofi study loop“, sonst Stille.
 

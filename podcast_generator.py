@@ -1,3 +1,4 @@
+import argparse
 import os
 import builtins
 import requests
@@ -322,6 +323,22 @@ def _step_key(step_name: str) -> str:
     return step_name.strip().lower()
 
 
+def _parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Podcast-Generator starten")
+    parser.add_argument("topic", nargs="?", help="Podcast-Thema; leer = Trend-Fallback")
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="setzt einen vorhandenen Checkpoint fuer dasselbe Thema fort",
+    )
+    parser.add_argument(
+        "--force-restart",
+        action="store_true",
+        help="ignoriert vorhandene Checkpoints und startet komplett neu",
+    )
+    return parser.parse_args(argv)
+
+
 def _to_ssml(text: str) -> str:
     """Baut SSML aus Klarschrift und wandelt *Wort* in <emphasis> um."""
     def _escape_ssml(value: str) -> str:
@@ -404,9 +421,11 @@ class PodcastGenerator:
             print(f"   ⚠️ Checkpoint konnte nicht geladen werden: {e}")
             return None
 
-    def _clear_checkpoint(self):
+    def _clear_checkpoint(self, quiet: bool = False):
         if os.path.exists(self.checkpoint_path):
             os.remove(self.checkpoint_path)
+            if not quiet:
+                print("🧹 Vorhandener Checkpoint verworfen. Starte komplett neu.")
 
     def _restore_from_checkpoint(self, completed_steps: list[str]):
         if "skript" in completed_steps and not self.transcript_path:
@@ -446,7 +465,9 @@ class PodcastGenerator:
             if os.path.exists(metadata_path):
                 self.metadata_path = metadata_path
 
-    def resume_completed_steps(self) -> list[str]:
+    def resume_completed_steps(self, enabled: bool = True) -> list[str]:
+        if not enabled:
+            return []
         checkpoint = self._load_checkpoint()
         if not checkpoint:
             return []
@@ -1250,11 +1271,20 @@ def _try_today(pytrends, country_code: str, debug_today):
 # HAUPTPROGRAMM
 # ==============================================================================
 if __name__ == "__main__":
+    args = _parse_cli_args()
+    if args.resume and args.force_restart:
+        raise RuntimeError("--resume und --force-restart koennen nicht gleichzeitig genutzt werden.")
+
     print(f"--- {PODCAST_NAME.upper()} AUTOMATISIERUNG ---")
     _ensure_audio_tools()
-    topic = input("Thema (Lass leer für aktuellen Top-Trend): ").strip()
-    if topic and not sys.stdin.isatty():
+    topic = (args.topic or "").strip()
+    if topic:
+        print(f"Thema aus CLI: '{topic}'")
         print()
+    else:
+        topic = input("Thema (Lass leer für aktuellen Top-Trend): ").strip()
+        if topic and not sys.stdin.isatty():
+            print()
 
     if not topic:
         print("🔍 Keine Eingabe. Suche nach aktuellen Trends in Deutschland...")
@@ -1280,7 +1310,9 @@ if __name__ == "__main__":
             print(f"   ⚠️ Fehler bei Trend-Suche: {e}. Nutze Fallback.")
             topic = "Künstliche Intelligenz"
     bot = PodcastGenerator(topic)
-    completed_steps = bot.resume_completed_steps()
+    if args.force_restart:
+        bot._clear_checkpoint()
+    completed_steps = bot.resume_completed_steps(enabled=args.resume)
 
     step_plan = _build_step_plan(bot, GENERATE_VIDEO)
     total_steps = len(step_plan)
