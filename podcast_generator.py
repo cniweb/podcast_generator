@@ -1,4 +1,5 @@
 import argparse
+import logging
 import os
 import builtins
 import requests
@@ -39,6 +40,7 @@ _ACTIVE_SPINNER = None
 _SPINNER_LINE_ACTIVE = False
 _SPINNER_DEFER_OUTPUT = False
 _DEFERRED_STDOUT_PRINTS: list[tuple[tuple, dict]] = []
+LOGGER = logging.getLogger("podcast_generator")
 
 
 def _safe_print(*args, **kwargs):
@@ -56,6 +58,40 @@ def _safe_print(*args, **kwargs):
 
 
 print = _safe_print
+
+
+class _ConsoleLogHandler(logging.Handler):
+    """Leitet Logging durch die spinner-sichere Konsolenausgabe."""
+
+    def emit(self, record: logging.LogRecord):
+        message = self.format(record)
+        target = sys.stderr if record.levelno >= logging.WARNING else sys.stdout
+        _safe_print(message, file=target)
+
+
+def _configure_logger():
+    if LOGGER.handlers:
+        return
+    handler = _ConsoleLogHandler()
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    LOGGER.addHandler(handler)
+    LOGGER.setLevel(logging.INFO)
+    LOGGER.propagate = False
+
+
+def log_info(message: str):
+    LOGGER.info(message)
+
+
+def log_warning(message: str):
+    LOGGER.warning(message)
+
+
+def log_error(message: str):
+    LOGGER.error(message)
+
+
+_configure_logger()
 
 def _require_env(var_name):
     """Liest eine benötigte Umgebungsvariable ein und bricht mit klarer Meldung ab."""
@@ -142,7 +178,7 @@ def _discover_model_names() -> set[str]:
         _MODEL_NAMES_CACHE = discovered
         return discovered
     except Exception as e:
-        print(f"   ⚠️ Model Discovery fehlgeschlagen ({e}).")
+        log_warning(f"   ⚠️ Model Discovery fehlgeschlagen ({e}).")
         _MODEL_NAMES_CACHE = set()
         return _MODEL_NAMES_CACHE
 
@@ -164,7 +200,7 @@ def _resolve_script_model(preferences: List[str]) -> str:
 
     if not available:
         fallback = cleaned[0] if cleaned else DEFAULT_MODEL
-        print(f"   ⚠️ Keine Script-Modelle discoverbar. Nutze Fallback: {fallback}")
+        log_warning(f"   ⚠️ Keine Script-Modelle discoverbar. Nutze Fallback: {fallback}")
         return fallback
 
     for pref in cleaned:
@@ -173,7 +209,7 @@ def _resolve_script_model(preferences: List[str]) -> str:
 
     gemini_candidates = sorted(m for m in available if "gemini" in m)
     fallback = gemini_candidates[0] if gemini_candidates else (cleaned[0] if cleaned else DEFAULT_MODEL)
-    print(f"   ⚠️ Kein bevorzugtes Script-Modell verfügbar. Nutze Discovery-Fallback: {fallback}")
+    log_warning(f"   ⚠️ Kein bevorzugtes Script-Modell verfügbar. Nutze Discovery-Fallback: {fallback}")
     return fallback
 
 
@@ -184,7 +220,7 @@ def _discover_tts_models() -> set[str]:
         if "tts" in model.lower():
             discovered.add(model)
     if not discovered:
-        print("   ⚠️ Keine TTS-Modelle discoverbar. Nutze konfigurierte TTS-Modelle.")
+        log_warning("   ⚠️ Keine TTS-Modelle discoverbar. Nutze konfigurierte TTS-Modelle.")
     return discovered
 
 
@@ -198,12 +234,12 @@ def _resolve_tts_models(preferences: list[str]) -> list[str]:
     resolved = [m for m in cleaned if m in available]
     dropped = [m for m in cleaned if m not in available]
     if dropped:
-        print(f"   ⚠️ Nicht verfügbare TTS-Modelle übersprungen: {', '.join(dropped)}")
+        log_warning(f"   ⚠️ Nicht verfügbare TTS-Modelle übersprungen: {', '.join(dropped)}")
     if resolved:
         return resolved
 
     discovered = sorted(available)
-    print(f"   ⚠️ Kein konfiguriertes TTS-Modell verfügbar. Nutze Discovery-Fallback: {', '.join(discovered)}")
+    log_warning(f"   ⚠️ Kein konfiguriertes TTS-Modell verfügbar. Nutze Discovery-Fallback: {', '.join(discovered)}")
     return discovered
 
 
@@ -300,7 +336,7 @@ def _with_spinner(label: str, start_after: float = 0.0, defer_stdout: bool = Fal
 def _run_step(step_label: str, action: Callable[[], object], spinner_after: float = 10.0, defer_output: bool = False):
     with _with_spinner(f"{step_label} läuft", start_after=spinner_after, defer_stdout=defer_output):
         result = action()
-    print(f"✅ {step_label} erfolgreich abgeschlossen.")
+    log_info(f"✅ {step_label} erfolgreich abgeschlossen.")
     return result
 
 

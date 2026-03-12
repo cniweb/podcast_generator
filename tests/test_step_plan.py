@@ -146,3 +146,14 @@ def test_parse_cli_args_supports_resume_and_force_restart_flags():
     assert args.resume is False
     assert args.force_restart is True
     assert args.topic is None
+
+
+def test_configure_logger_adds_single_console_handler():
+    mod = _load_partial_module()
+    logger = mod["LOGGER"]
+    configure_logger = mod["_configure_logger"]
+
+    handler_count = len(logger.handlers)
+    configure_logger()
+
+    assert len(logger.handlers) == handler_count
