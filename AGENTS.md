@@ -37,6 +37,11 @@ Project CI checks:
   - Creates/uses `.venv`.
   - Installs dependencies + `ruff==0.6.8`.
   - Runs ruff, import sanity check, compileall, pytest, markdown lint.
+- GitHub Actions status after push:
+  - After every `git push`, check the latest GitHub Actions run for `main` via `gh run list --limit 5 --branch main`.
+  - If the pushed commit's CI run is still in progress, inspect it again until it completes or clearly report that it is still running.
+  - If the CI run fails, inspect details with `gh run view <run-id>` (and job logs as needed), attempt a targeted fix locally, rerun relevant local validation, commit the fix, push again, and re-check GitHub Actions until the build is green or you are blocked.
+  - When reporting back after a push, include whether the GitHub Actions build passed, failed, or is still running.
 
 Optional CI with setup checks:
 - `./ci.sh --setup`
