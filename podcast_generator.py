@@ -448,6 +448,12 @@ def _artifact_path_or_none(path: str) -> str | None:
     return path or None
 
 
+def _file_size_or_zero(path: str) -> int:
+    if not path or not os.path.exists(path):
+        return 0
+    return os.path.getsize(path)
+
+
 def _parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Podcast-Generator starten")
     parser.add_argument("topic", nargs="?", help="Podcast-Thema; leer = Trend-Fallback")
@@ -560,6 +566,42 @@ class PodcastGenerator:
             json.dump(payload, f, ensure_ascii=False, indent=2)
         self.run_manifest_path = manifest_path
         log_info(f"   -> Run-Manifest gespeichert: {manifest_path}")
+
+    def validate_outputs(self, generate_video: bool):
+        issues: list[str] = []
+
+        if not self.final_audio_path or not os.path.exists(self.final_audio_path):
+            issues.append("Finale Audio-Datei fehlt")
+        elif _file_size_or_zero(self.final_audio_path) == 0:
+            issues.append("Finale Audio-Datei ist leer")
+        else:
+            try:
+                audio = AudioSegment.from_mp3(self.final_audio_path)
+                if len(audio) < 30_000:
+                    issues.append("Finale Audio-Datei ist kuerzer als 30 Sekunden")
+            except Exception as exc:
+                issues.append(f"Finale Audio-Datei konnte nicht gelesen werden: {exc}")
+
+        if not self.audio_voice_path or not os.path.exists(self.audio_voice_path):
+            issues.append("Stimmen-Datei fehlt")
+
+        if not self.metadata_path or not os.path.exists(self.metadata_path):
+            issues.append("Metadaten-Datei fehlt")
+
+        transcript_output = os.path.join(OUTPUT_DIR, f"{self.topic_slug}_transcription.txt")
+        if not os.path.exists(transcript_output):
+            issues.append("Transkript-Datei fehlt")
+
+        if generate_video:
+            if not self.final_video_path or not os.path.exists(self.final_video_path):
+                issues.append("Video-Datei fehlt")
+            elif _file_size_or_zero(self.final_video_path) == 0:
+                issues.append("Video-Datei ist leer")
+
+        if issues:
+            raise RuntimeError("Output-QA fehlgeschlagen: " + "; ".join(issues))
+
+        log_info("🔎 Output-QA erfolgreich: Audio, Metadaten und optionale Artefakte sind plausibel.")
 
     def _write_checkpoint(self, current_step: str, status: str, completed_steps: list[str]):
         payload = {
@@ -1531,6 +1573,7 @@ if __name__ == "__main__":
     run_error: str | None = None
     try:
         _execute_pipeline(bot, GENERATE_VIDEO, resume_enabled=args.resume, force_restart=args.force_restart)
+        bot.validate_outputs(GENERATE_VIDEO)
     except Exception as exc:
         run_error = str(exc)
         bot.write_run_manifest(

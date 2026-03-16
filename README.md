@@ -116,6 +116,7 @@ Ausgaben:
 - Video-Schritt optional per `.env`: `GENERATE_VIDEO=true|false` (Default: `true`).
 - Unterbrechungen: Der Generator schreibt einen Checkpoint in `temp_assets/` und setzt beim nächsten Start mit gleichem Thema ab bereits abgeschlossenen Schritten fort.
 - Resume-Steuerung: `--resume` setzt Checkpoints bewusst fort, `--force-restart` verwirft sie und startet sauber neu.
+- Vor Abschluss prueft eine Output-QA, ob Audio, Metadaten, Transkript und optional das Video wirklich erzeugt wurden.
 - Cover-Bild: `assets/cover.png` oder `assets/cover.jpg`.
 - Musik-Query-Fallbacks: zuerst themenbezogen, dann „lofi study loop“, sonst Stille.
 

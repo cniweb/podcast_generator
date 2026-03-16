@@ -315,3 +315,57 @@ def test_write_run_manifest_records_failures(tmp_path):
     assert manifest["error"] == "boom"
     assert manifest["options"]["force_restart"] is True
     assert manifest["artifacts"]["checkpoint"] == bot.checkpoint_path
+
+
+def test_validate_outputs_accepts_present_audio_and_metadata(tmp_path, monkeypatch):
+    mod = _load_partial_module()
+    podcast_generator_cls = mod["PodcastGenerator"]
+
+    mod["OUTPUT_DIR"] = str(tmp_path / "out")
+    mod["TEMP_DIR"] = str(tmp_path / "temp")
+    mod["ASSETS_DIR"] = str(tmp_path / "assets")
+    Path(mod["OUTPUT_DIR"]).mkdir(parents=True, exist_ok=True)
+    Path(mod["TEMP_DIR"]).mkdir(parents=True, exist_ok=True)
+    Path(mod["ASSETS_DIR"]).mkdir(parents=True, exist_ok=True)
+
+    bot = podcast_generator_cls("QA Topic")
+    bot.final_audio_path = str(Path(mod["OUTPUT_DIR"]) / "QA_Topic.mp3")
+    bot.audio_voice_path = str(Path(mod["TEMP_DIR"]) / "QA_Topic_voice.mp3")
+    bot.metadata_path = str(Path(mod["OUTPUT_DIR"]) / "QA_Topic_meta.json")
+    transcript_path = Path(mod["OUTPUT_DIR"]) / "QA_Topic_transcription.txt"
+
+    Path(bot.final_audio_path).write_bytes(b"audio")
+    Path(bot.audio_voice_path).write_bytes(b"voice")
+    Path(bot.metadata_path).write_text("{}", encoding="utf-8")
+    transcript_path.write_text("transcript", encoding="utf-8")
+
+    class _Audio:
+        def __len__(self):
+            return 31_000
+
+    monkeypatch.setattr(mod["AudioSegment"], "from_mp3", lambda _path: _Audio())
+
+    bot.validate_outputs(generate_video=False)
+
+
+def test_validate_outputs_rejects_missing_required_artifacts(tmp_path):
+    mod = _load_partial_module()
+    podcast_generator_cls = mod["PodcastGenerator"]
+
+    mod["OUTPUT_DIR"] = str(tmp_path / "out")
+    mod["TEMP_DIR"] = str(tmp_path / "temp")
+    mod["ASSETS_DIR"] = str(tmp_path / "assets")
+    Path(mod["OUTPUT_DIR"]).mkdir(parents=True, exist_ok=True)
+    Path(mod["TEMP_DIR"]).mkdir(parents=True, exist_ok=True)
+    Path(mod["ASSETS_DIR"]).mkdir(parents=True, exist_ok=True)
+
+    bot = podcast_generator_cls("Broken QA")
+
+    try:
+        bot.validate_outputs(generate_video=True)
+    except RuntimeError as exc:
+        assert "Output-QA fehlgeschlagen" in str(exc)
+        assert "Finale Audio-Datei fehlt" in str(exc)
+        assert "Video-Datei fehlt" in str(exc)
+    else:
+        raise AssertionError("validate_outputs should have raised")
