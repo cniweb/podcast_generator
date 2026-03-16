@@ -454,6 +454,20 @@ def _file_size_or_zero(path: str) -> int:
     return os.path.getsize(path)
 
 
+def _format_subprocess_error(cmd: list[str], exc: subprocess.CalledProcessError | Exception) -> str:
+    command_str = " ".join(cmd)
+    if isinstance(exc, subprocess.CalledProcessError):
+        stderr = exc.stderr.decode("utf-8", errors="replace") if isinstance(exc.stderr, bytes) else (exc.stderr or "")
+        stdout = exc.stdout.decode("utf-8", errors="replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")
+        output = stderr.strip() or stdout.strip()
+        details = output[-800:] if output else "keine weitere Ausgabe"
+        return (
+            f"Subprocess fehlgeschlagen (exit={exc.returncode}). "
+            f"Kommando: {command_str}. Details: {details}"
+        )
+    return f"Subprocess fehlgeschlagen. Kommando: {command_str}. Fehler: {exc}"
+
+
 def _parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Podcast-Generator starten")
     parser.add_argument("topic", nargs="?", help="Podcast-Thema; leer = Trend-Fallback")
@@ -1372,10 +1386,15 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
         ]
         
         try:
-            subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT, check=True)
+            subprocess.run(cmd, capture_output=True, check=True)
             print(f"   -> Video fertig: {self.final_video_path}")
-        except Exception as e:
-            print(f"   ❌ FFmpeg Fehler: {e}")
+        except subprocess.CalledProcessError as exc:
+            raise RuntimeError(
+                _format_subprocess_error(cmd, exc)
+                + " | Hinweis: Pruefe Cover-Datei, ffmpeg-Installation und Audio-Eingabedatei."
+            ) from exc
+        except Exception as exc:
+            raise RuntimeError(_format_subprocess_error(cmd, exc)) from exc
 
     # --------------------------------------------------------------------------
     # 7. METADATEN

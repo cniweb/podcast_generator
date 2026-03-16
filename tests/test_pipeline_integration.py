@@ -369,3 +369,52 @@ def test_validate_outputs_rejects_missing_required_artifacts(tmp_path):
         assert "Video-Datei fehlt" in str(exc)
     else:
         raise AssertionError("validate_outputs should have raised")
+
+
+def test_format_subprocess_error_includes_exit_code_and_output():
+    mod = _load_partial_module()
+    format_subprocess_error = mod["_format_subprocess_error"]
+    called_process_error = mod["subprocess"].CalledProcessError(
+        1,
+        ["ffmpeg", "-i", "input.mp3"],
+        stderr=b"ffmpeg exploded",
+    )
+
+    message = format_subprocess_error(["ffmpeg", "-i", "input.mp3"], called_process_error)
+
+    assert "exit=1" in message
+    assert "ffmpeg -i input.mp3" in message
+    assert "ffmpeg exploded" in message
+
+
+def test_create_video_raises_detailed_ffmpeg_error(tmp_path, monkeypatch):
+    mod = _load_partial_module()
+    podcast_generator_cls = mod["PodcastGenerator"]
+
+    mod["OUTPUT_DIR"] = str(tmp_path / "out")
+    mod["TEMP_DIR"] = str(tmp_path / "temp")
+    mod["ASSETS_DIR"] = str(tmp_path / "assets")
+    Path(mod["OUTPUT_DIR"]).mkdir(parents=True, exist_ok=True)
+    Path(mod["TEMP_DIR"]).mkdir(parents=True, exist_ok=True)
+    Path(mod["ASSETS_DIR"]).mkdir(parents=True, exist_ok=True)
+
+    cover_path = Path(mod["ASSETS_DIR"]) / "cover.png"
+    cover_path.write_bytes(b"cover")
+
+    bot = podcast_generator_cls("Video Failure")
+    bot.final_audio_path = str(Path(mod["OUTPUT_DIR"]) / "Video_Failure.mp3")
+    Path(bot.final_audio_path).write_bytes(b"audio")
+
+    def fake_run(*args, **kwargs):
+        raise mod["subprocess"].CalledProcessError(1, kwargs.get("args", args[0]), stderr=b"bad ffmpeg")
+
+    monkeypatch.setattr(mod["subprocess"], "run", fake_run)
+
+    try:
+        bot.create_video()
+    except RuntimeError as exc:
+        assert "exit=1" in str(exc)
+        assert "bad ffmpeg" in str(exc)
+        assert "Pruefe Cover-Datei" in str(exc)
+    else:
+        raise AssertionError("create_video should have raised")

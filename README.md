@@ -125,6 +125,7 @@ Ausgaben:
 - Fehler `Environment variable ... is required`: .env prüfen und Wert setzen.
 - ffmpeg nicht gefunden: ffmpeg installieren und PATH prüfen.
   Danach `setup.sh` erneut ausführen.
+- FFmpeg-Fehler bei Video-Erzeugung: Die Ausgabe enthaelt jetzt Exit-Code, Kommando und relevante stderr-Hinweise; meist helfen Cover-/Audio-Pfad und ffmpeg-Installation pruefen.
 - `audioop` fehlt: `run.sh` installiert `audioop-lts` über requirements.
   Sicherstellen, dass Python 3.12+ genutzt wird.
 
