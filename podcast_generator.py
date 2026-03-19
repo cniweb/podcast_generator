@@ -208,7 +208,7 @@ def _tts_model_preferences() -> list[str]:
         if model and model not in ordered:
             ordered.append(model)
     if not ordered:
-        ordered = ["gemini-2.5-pro-preview-tts", "gemini-2.5-flash-preview-tts"]
+        ordered = ["gemini-2.5-flash-preview-tts", "gemini-2.5-pro-preview-tts"]
     return ordered
 
 
@@ -298,6 +298,8 @@ def _resolve_tts_models(preferences: list[str]) -> list[str]:
 
 def _is_rate_limited_error(err: Exception | str) -> bool:
     msg = str(err).lower()
+    if "requests_per_model_per_day" in msg or "quota exceeded" in msg:
+        return False
     return " 429" in msg or "code 429" in msg or "too many requests" in msg or "rate" in msg
 
 
@@ -1185,12 +1187,12 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
 
     def _is_rate_limit_error(self, exc: Exception) -> bool:
         msg = str(exc).lower()
+        if "requests_per_model_per_day" in msg or "quota exceeded" in msg:
+            return False
         return (
             "429" in msg
             or "resource_exhausted" in msg
             or "too many requests" in msg
-            or "rate limit" in msg
-            or "quota exceeded" in msg
         )
 
     def _part_to_segment(self, part: types.Part, chunk_idx: int, cand_idx: int) -> AudioSegment:
@@ -1250,6 +1252,9 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
 
         resp = _gemini_generate_content_with_retry(model=model_tts, contents=[content], config=cfg)
         for cand_idx, cand in enumerate(resp.candidates or []):
+            if not cand.content:
+                print(f"   ⚠️ Leerer Content in Candidate {cand_idx} (Grund: {getattr(cand, 'finish_reason', 'Unbekannt')})")
+                continue
             for part in cand.content.parts or []:
                 try:
                     return self._part_to_segment(part, chunk_idx, cand_idx)
