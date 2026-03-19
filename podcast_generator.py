@@ -786,38 +786,32 @@ class PodcastGenerator:
             "Du erstellst Veröffentlichungs-Texte für creators.spotify.com. "
             f"Podcast: {PODCAST_NAME}; Slogan: {SLOGAN}; Thema: {self.topic}. "
             "Nutze das Transkript unten, aber fasse dich kurz und präzise. "
-            "Antworte ausschließlich mit JSON (ohne Markdown, Backticks oder Erklärung) im Format: {\"title\": \"...\", \"description\": \"...\"}. "
             "Constraints: title <= 200 Zeichen, deutsch, ohne Anführungszeichen, kein Hashtag. "
             "Description <= 4000 Zeichen, deutsch, 2-4 Sätze Zusammenfassung + Call-to-Action zum Folgen/Bewerten; keine Listen, keine Quotes. "
             "Transkript:\n" + self.script_content
         )
 
         try:
-            resp = _gemini_generate_content_with_retry(model=model_name, contents=prompt)
+            from pydantic import BaseModel, Field
+
+            class EpisodeMetadata(BaseModel):
+                title: str = Field(description="The title of the episode (max 200 chars).")
+                description: str = Field(description="The description of the episode (max 4000 chars).")
+
+            cfg = types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=EpisodeMetadata,
+                temperature=0.7,
+            )
+
+            resp = _gemini_generate_content_with_retry(model=model_name, contents=prompt, config=cfg)
             raw = resp.text or ""
 
-            def _extract_json(candidate: str) -> str | None:
-                import re
-                match = re.search(r"\{.*\}", candidate, re.DOTALL)
-                return match.group(0) if match else None
-
-            data = None
-            for candidate in (raw, _extract_json(raw)):
-                if not candidate:
-                    continue
-                try:
-                    data = json.loads(candidate)
-                    break
-                except Exception:
-                    continue
-
-            if data is None:
-                raise ValueError("json parse failed")
-
+            data = json.loads(raw)
             title = str(data.get("title", "")).strip()
             desc = str(data.get("description", "")).strip()
-        except Exception:
-            print("   ⚠️ Konnte Episode-Metadaten nicht parsen, nutze Fallback.")
+        except Exception as e:
+            print(f"   ⚠️ Konnte Episode-Metadaten nicht parsen, nutze Fallback ({e}).")
             title = f"{PODCAST_NAME}: {self.topic}"
             desc = f"{SLOGAN}\n\n{self.script_content[:300]}..."
 
