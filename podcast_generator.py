@@ -14,6 +14,7 @@ import threading
 import time
 import xml.etree.ElementTree as ET
 import shutil
+import concurrent.futures
 from contextlib import contextmanager
 from pytrends.request import TrendReq
 from google import genai
@@ -1162,11 +1163,14 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
 
         segments = self._tts_segments(chunks, tts_models, voice_name)
 
-        if not segments:
+        # Remove any Nones in case something went terribly wrong
+        valid_segments = [s for s in segments if s is not None]
+
+        if not valid_segments:
             raise RuntimeError("TTS lieferte keine Segmente.")
 
-        final_voice = segments[0]
-        for seg in segments[1:]:
+        final_voice = valid_segments[0]
+        for seg in valid_segments[1:]:
             final_voice = final_voice.append(seg, crossfade=100)
 
         self.audio_voice_path = os.path.join(TEMP_DIR, f"{self.topic_slug}_voice_raw.mp3")
@@ -1289,32 +1293,35 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
         raise RuntimeError(f"Chunk {idx}: Unbekannter Fehler bei Gemini TTS")
 
     def _tts_segments(self, chunks, tts_models, voice_name):
-        segments = []
-        for idx, chunk in enumerate(chunks):
+        segments = [None] * len(chunks)
+
+        def _process_single(idx, chunk):
             gem_err: Exception | None = None
             for model_tts in tts_models:
                 try:
                     seg = self._process_chunk(idx, chunk, model_tts, voice_name)
-                    segments.append(seg)
                     print(f"   ✅ Chunk {idx + 1}/{len(chunks)} fertig ({model_tts})")
-                    gem_err = None
-                    break
+                    return idx, seg
                 except Exception as err:
                     gem_err = err
                     print(f"   ⚠️ Modell-Fallback: {model_tts} fehlgeschlagen (Chunk {idx}): {err}")
 
-            if gem_err is None:
-                continue
-
             try:
                 print(f"      -> Nutze Cloud TTS mit SSML für Chunk {idx}...")
                 seg = self._generate_chunk_with_gcloud(idx, chunk)
-                segments.append(seg)
                 print(f"   ✅ Chunk {idx + 1}/{len(chunks)} fertig (Cloud TTS)")
-                continue
+                return idx, seg
             except Exception as gc_err:
                 print(f"   ❌ Google Cloud TTS Fehler (Fallback) bei Chunk {idx}: {gc_err}")
-                raise gem_err
+                raise gem_err or gc_err
+
+        # Verarbeite maximal 3 Chunks gleichzeitig (schont API-Rate-Limits)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+            futures = [executor.submit(_process_single, i, chunk) for i, chunk in enumerate(chunks)]
+            for future in concurrent.futures.as_completed(futures):
+                idx, seg = future.result()
+                segments[idx] = seg
+
         return segments
 
     # --------------------------------------------------------------------------
