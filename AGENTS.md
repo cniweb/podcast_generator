@@ -97,6 +97,7 @@ Dependency import sanity snippet:
 
 ## Language And Output Constraints
 
+- All communication between the agent and the user MUST be in German.
 - User-facing copy and generated script content are German by default.
 - Script output should be spoken text only.
 - Do not output stage directions, sound cues, or screenplay markup.
