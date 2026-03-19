@@ -854,8 +854,9 @@ class PodcastGenerator:
         print(f"✍️ 2. Gemini schreibt das Skript über '{self.topic}'...")
 
         # Prompt mit extremer Fokus auf Wortanzahl-Limits
-        prompt = f"""Du bist Podcast-Host von '{PODCAST_NAME}'. Slogan: '{SLOGAN}'.
-Schreibe ein Podcast-Skript zum Thema '{self.topic}'.
+        system_instruction = f"Du bist Redakteur und Podcast-Host des preisgekrönten Podcasts '{PODCAST_NAME}'. Slogan: '{SLOGAN}'."
+        
+        prompt = f"""Schreibe ein Podcast-Skript zum Thema '{self.topic}'.
 
 ABSOLUT STRIKTE REGELN (NICHT BREAKBAR):
 1. WORTANZAHL: {SCRIPT_MIN_WORDS}-{SCRIPT_MAX_WORDS} WÖRTER! Zähle sorgfältig! KEINE AUSNAHME!
@@ -871,7 +872,7 @@ ABSOLUT STRIKTE REGELN (NICHT BREAKBAR):
 SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
 
         fixup_prompt = (
-            "Podcast-Host von '{name}'. Überarbeite STRIKT nach diesen Regeln:\n"
+            "Überarbeite den folgenden Text STRIKT nach diesen Regeln:\n"
             "• {min_words}-{max_words} Wörter (NICHT MEHR!)\n"
             "• GENAU 5 ABSÄTZE\n"
             "• Kurze, knappe Sätze\n"
@@ -879,7 +880,6 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
             "• ENDE: QUELLEN: url1; url2; url3\n\n"
             "Zu überarbeitender Text:\n{draft}"
         ).format(
-            name=PODCAST_NAME,
             min_words=SCRIPT_MIN_WORDS,
             max_words=SCRIPT_MAX_WORDS,
             draft="{draft}",
@@ -897,17 +897,23 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
         print(f"   -> Verwende Modell: {model_name}")
 
         try:
+            cfg = types.GenerateContentConfig(
+                system_instruction=system_instruction,
+                temperature=0.7,
+            )
+
             attempts = 3
             last_errors: list[str] = []
             raw_text = ""
             for attempt in range(1, attempts + 1):
                 if attempt == 1:
-                    response = _gemini_generate_content_with_retry(model=model_name, contents=prompt)
+                    response = _gemini_generate_content_with_retry(model=model_name, contents=prompt, config=cfg)
                 else:
                     print(f"   ⚠️  Skript verletzt Constraints. Versuch {attempt}/{attempts}...")
                     response = _gemini_generate_content_with_retry(
                         model=model_name,
                         contents=fixup_prompt.format(draft=raw_text),
+                        config=cfg
                     )
 
                 raw_text = response.text or ""
