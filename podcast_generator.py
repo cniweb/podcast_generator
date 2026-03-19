@@ -1262,7 +1262,7 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
         tts_client = texttospeech.TextToSpeechClient()
         voice_params = texttospeech.VoiceSelectionParams(
             language_code="de-DE",
-            name="de-DE-Polyglot-1",
+            name="de-DE-Journey-D",
         )
         audio_config = texttospeech.AudioConfig(
             audio_encoding=texttospeech.AudioEncoding.MP3,
