@@ -1230,7 +1230,6 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
 
         cfg = types.GenerateContentConfig(
             temperature=0.3,
-            system_instruction="Du bist ein professioneller Podcast-Host. Lies den Text natürlich, flüssig und in einem gleichmäßigen, angenehmen Tempo vor. Vermeide extreme Betonungen oder plötzliche Tonhöhenwechsel.",
             response_modalities=["audio"],
             speech_config=types.SpeechConfig(
                 voice_config=types.VoiceConfig(
