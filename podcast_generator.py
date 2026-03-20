@@ -7,7 +7,6 @@ import json
 import subprocess
 import re
 import io
-import math
 import mimetypes
 import sys
 import threading
@@ -1370,29 +1369,55 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
     def mix_audio(self):
         """Mischt Stimme mit Musik-Loop und exportiert die finale MP3."""
         print("🎛️ 5. Mixing...")
-        voice = AudioSegment.from_mp3(self.audio_voice_path)
+
+        self.final_audio_path = os.path.join(OUTPUT_DIR, f"{self.topic_slug}.mp3")
 
         if self.music_path and os.path.exists(self.music_path):
-            music = AudioSegment.from_mp3(self.music_path)
-            music = music - 18 
+            try:
+                # Dauer der Stimme ermitteln (ffprobe)
+                cmd_probe = [
+                    "ffprobe", "-v", "error", "-show_entries",
+                    "format=duration", "-of",
+                    "default=noprint_wrappers=1:nokey=1", self.audio_voice_path
+                ]
+                voice_len_s = float(subprocess.check_output(cmd_probe).decode("utf-8").strip())
+            except Exception as e:
+                print(f"   ⚠️ Konnte Länge der Stimme nicht ermitteln: {e}. Nutze Fallback.")
+                voice_len_s = 60.0
 
-            def _loop_music_fast(track: AudioSegment, target_ms: int) -> AudioSegment:
-                """Loop per Vorverdopplung und Schnitt (spart Kopien in der Schleife)."""
-                reps = max(2, math.ceil(target_ms / len(track)) + 1)
-                combined = track * reps
-                return combined[:target_ms]
+            target_len_s = voice_len_s + 2.0
+            fade_start_s = target_len_s - 1.5
 
-            target_len = len(voice) + 2000  # kleiner Puffer für das Fade-Out
-            music = _loop_music_fast(music, target_len)
-            music = music.fade_out(1500)
-            final = music.overlay(voice, position=200)
+            cmd = [
+                "ffmpeg", "-y",
+                "-stream_loop", "-1", "-i", self.music_path,
+                "-i", self.audio_voice_path,
+                "-filter_complex",
+                f"[0:a]volume=0.12589,afade=t=out:st={fade_start_s}:d=1.5[bg];"
+                f"[1:a]adelay=200|200,apad=pad_dur=2[v_padded];"
+                f"[v_padded][bg]amix=inputs=2:duration=first:dropout_transition=2[aout]",
+                "-map", "[aout]",
+                "-c:a", "libmp3lame", "-b:a", "192k",
+                self.final_audio_path
+            ]
         else:
-            final = voice
+            cmd = [
+                "ffmpeg", "-y",
+                "-i", self.audio_voice_path,
+                "-c:a", "libmp3lame", "-b:a", "192k",
+                self.final_audio_path
+            ]
 
-        filename = f"{self.topic_slug}.mp3"
-        self.final_audio_path = os.path.join(OUTPUT_DIR, filename)
-        final.export(self.final_audio_path, format="mp3", bitrate="192k")
-        print(f"   -> Audio fertig: {self.final_audio_path}")
+        try:
+            subprocess.run(cmd, capture_output=True, check=True)
+            print(f"   -> Audio fertig: {self.final_audio_path}")
+        except subprocess.CalledProcessError as exc:
+            raise RuntimeError(
+                _format_subprocess_error(cmd, exc)
+                + " | Hinweis: Pruefe FFmpeg-Installation und Audio-Eingabedateien."
+            ) from exc
+        except Exception as exc:
+            raise RuntimeError(_format_subprocess_error(cmd, exc)) from exc
 
     # --------------------------------------------------------------------------
     # 6. VIDEO (FFmpeg)
