@@ -202,6 +202,24 @@ def _gemini_generate_content_with_retry(*, model: str, contents, config=None):
     raise RuntimeError(f"Gemini-Aufruf fehlgeschlagen ({model}): {last_error}")
 
 
+def _gemini_generate_content_stream_with_retry(*, model: str, contents, config=None):
+    max_attempts = 3
+    import time
+    for attempt in range(max_attempts):
+        try:
+            return client.models.generate_content_stream(model=model, contents=contents, config=config)
+        except Exception as e:
+            if _is_rate_limited_error(e):
+                log_warning(f"Quota/Rate Limit erreicht bei Modell {model}: {e}")
+                raise e
+            if attempt == max_attempts - 1:
+                log_error(f"Fehler bei _gemini_generate_content_stream nach {max_attempts} Versuchen: {e}")
+                raise e
+            delay = _retry_delay(attempt)
+            log_warning(f"Fehler in _gemini_generate_content_stream (Versuch {attempt+1}/{max_attempts}): {e}. Warte {delay:.1f}s...")
+            time.sleep(delay)
+
+
 def _tts_model_preferences() -> list[str]:
     ordered: list[str] = []
     for model in [TTS_DEFAULT_MODEL, *_parse_csv_models(TTS_FALLBACK_MODELS)]:
@@ -399,7 +417,7 @@ def _build_step_plan(bot: "PodcastGenerator", generate_video: bool) -> list[tupl
     """Erzeugt den dynamischen Ausführungsplan inkl. optionalem Videoschritt."""
     plan: list[tuple[str, Callable[[], object], bool]] = [
         ("Trends", bot.research_trends, False),
-        ("Skript", bot.generate_script, True),
+        ("Skript", bot.generate_script, False),
         ("Musik", bot.fetch_music, True),
         ("Stimme", bot.generate_voice, True),
         ("Mixing", bot.mix_audio, False),
@@ -909,7 +927,18 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
             raw_text = ""
             for attempt in range(1, attempts + 1):
                 if attempt == 1:
-                    response = _gemini_generate_content_with_retry(model=model_name, contents=prompt, config=cfg)
+                    print("   -> Generiere Skript (Streaming): ", end="", flush=True)
+                    resp_stream = _gemini_generate_content_stream_with_retry(model=model_name, contents=prompt, config=cfg)
+                    raw_text_stream = ""
+                    for chunk in resp_stream:
+                        if chunk.text:
+                            raw_text_stream += chunk.text
+                            print(chunk.text, end="", flush=True)
+                    print()
+                    class DummyResponse:
+                        pass
+                    response = DummyResponse()
+                    response.text = raw_text_stream
                 else:
                     print(f"   ⚠️  Skript verletzt Constraints. Versuch {attempt}/{attempts}...")
                     response = _gemini_generate_content_with_retry(
