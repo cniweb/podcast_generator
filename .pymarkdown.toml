@@ -1,0 +1,3 @@
+[tool.pymarkdown]
+[tool.pymarkdown.plugins]
+line-length.enabled = false
