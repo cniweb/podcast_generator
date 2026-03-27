@@ -32,6 +32,7 @@ from utils import (
     _strip_formatting,
     _validate_script_constraints,
 )
+
 load_dotenv()
 
 
@@ -105,6 +106,7 @@ def _require_env(var_name):
         raise RuntimeError(f"Environment variable {var_name} is required but not set.")
     return value
 
+
 # Secrets aus der .env Datei
 GEMINI_API_KEY = _require_env("GEMINI_API_KEY")
 GOOGLE_APPLICATION_CREDENTIALS = _require_env("GOOGLE_APPLICATION_CREDENTIALS")
@@ -123,7 +125,12 @@ TTS_FALLBACK_MODELS = os.getenv(
     "gemini-2.5-flash-preview-tts",
 )
 TTS_VOICE_NAME = os.getenv("TTS_VOICE_NAME", "umbriel").strip()
-GENERATE_VIDEO = os.getenv("GENERATE_VIDEO", "true").strip().lower() in {"1", "true", "yes", "on"}
+GENERATE_VIDEO = os.getenv("GENERATE_VIDEO", "true").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 
 # Ordner erstellen
 os.makedirs(TEMP_DIR, exist_ok=True)
@@ -176,9 +183,11 @@ def _request_with_retry(url: str, **kwargs) -> requests.Response:
             if attempt == HTTP_RETRY_ATTEMPTS:
                 break
             delay = _retry_delay(attempt, 1.5)
-            log_warning(f"   ⚠️ HTTP-Versuch {attempt}/{HTTP_RETRY_ATTEMPTS} fehlgeschlagen ({exc}), warte {delay:.1f}s...")
+            log_warning(
+                f"   ⚠️ HTTP-Versuch {attempt}/{HTTP_RETRY_ATTEMPTS} fehlgeschlagen ({exc}), warte {delay:.1f}s..."
+            )
             time.sleep(delay)
-    raise RuntimeError(f"HTTP-Anfrage fehlgeschlagen: {last_error}")
+    raise RuntimeError(f"HTTP-Anfrage fehlgeschlagen: {last_error}") from last_error
 
 
 def _gemini_generate_content_with_retry(*, model: str, contents, config=None):
@@ -187,10 +196,16 @@ def _gemini_generate_content_with_retry(*, model: str, contents, config=None):
         try:
             if config is None:
                 return client.models.generate_content(model=model, contents=contents)
-            return client.models.generate_content(model=model, contents=contents, config=config)
+            return client.models.generate_content(
+                model=model, contents=contents, config=config
+            )
         except Exception as exc:
             last_error = exc
-            retryable = _is_rate_limited_error(exc) or "timeout" in str(exc).lower() or "503" in str(exc)
+            retryable = (
+                _is_rate_limited_error(exc)
+                or "timeout" in str(exc).lower()
+                or "503" in str(exc)
+            )
             if not retryable or attempt == GEMINI_RETRY_ATTEMPTS:
                 break
             delay = _retry_delay(attempt, GEMINI_RETRY_BASE_DELAY)
@@ -198,25 +213,35 @@ def _gemini_generate_content_with_retry(*, model: str, contents, config=None):
                 f"   ⚠️ Gemini-Versuch {attempt}/{GEMINI_RETRY_ATTEMPTS} fuer Modell {model} fehlgeschlagen ({exc}), warte {delay:.1f}s..."
             )
             time.sleep(delay)
-    raise RuntimeError(f"Gemini-Aufruf fehlgeschlagen ({model}): {last_error}")
+    raise RuntimeError(
+        f"Gemini-Aufruf fehlgeschlagen ({model}): {last_error}"
+    ) from last_error
 
 
 def _gemini_generate_content_stream_with_retry(*, model: str, contents, config=None):
-    max_attempts = 3
-    import time
-    for attempt in range(max_attempts):
+    last_error: Exception | None = None
+    for attempt in range(1, GEMINI_RETRY_ATTEMPTS + 1):
         try:
-            return client.models.generate_content_stream(model=model, contents=contents, config=config)
+            return client.models.generate_content_stream(
+                model=model, contents=contents, config=config
+            )
         except Exception as e:
-            if _is_rate_limited_error(e):
-                log_warning(f"Quota/Rate Limit erreicht bei Modell {model}: {e}")
-                raise e
-            if attempt == max_attempts - 1:
-                log_error(f"Fehler bei _gemini_generate_content_stream nach {max_attempts} Versuchen: {e}")
-                raise e
-            delay = _retry_delay(attempt)
-            log_warning(f"Fehler in _gemini_generate_content_stream (Versuch {attempt+1}/{max_attempts}): {e}. Warte {delay:.1f}s...")
+            last_error = e
+            retryable = (
+                _is_rate_limited_error(e)
+                or "timeout" in str(e).lower()
+                or "503" in str(e)
+            )
+            if not retryable or attempt == GEMINI_RETRY_ATTEMPTS:
+                break
+            delay = _retry_delay(attempt, GEMINI_RETRY_BASE_DELAY)
+            log_warning(
+                f"   ⚠️ Gemini-Stream-Versuch {attempt}/{GEMINI_RETRY_ATTEMPTS} fuer Modell {model} fehlgeschlagen ({e}), warte {delay:.1f}s..."
+            )
             time.sleep(delay)
+    raise RuntimeError(
+        f"Gemini-Stream fehlgeschlagen ({model}): {last_error}"
+    ) from last_error
 
 
 def _tts_model_preferences() -> list[str]:
@@ -254,7 +279,17 @@ def _discover_model_names() -> set[str]:
 
 
 def _discover_script_models() -> set[str]:
-    blocked_tokens = {"embedding", "tts", "image", "imagen", "veo", "computer-use", "robotics", "aqa", "native-audio"}
+    blocked_tokens = {
+        "embedding",
+        "tts",
+        "image",
+        "imagen",
+        "veo",
+        "computer-use",
+        "robotics",
+        "aqa",
+        "native-audio",
+    }
     candidates: set[str] = set()
     for model in _discover_model_names():
         if any(tok in model for tok in blocked_tokens):
@@ -265,12 +300,16 @@ def _discover_script_models() -> set[str]:
 
 def _resolve_script_model(preferences: List[str]) -> str:
     """Wählt ein verfügbares Script-Modell gemäß Präferenzliste."""
-    cleaned = [_normalize_model_name(m) for m in preferences if _normalize_model_name(m)]
+    cleaned = [
+        _normalize_model_name(m) for m in preferences if _normalize_model_name(m)
+    ]
     available = _discover_script_models()
 
     if not available:
         fallback = cleaned[0] if cleaned else DEFAULT_MODEL
-        log_warning(f"   ⚠️ Keine Script-Modelle discoverbar. Nutze Fallback: {fallback}")
+        log_warning(
+            f"   ⚠️ Keine Script-Modelle discoverbar. Nutze Fallback: {fallback}"
+        )
         return fallback
 
     for pref in cleaned:
@@ -278,8 +317,14 @@ def _resolve_script_model(preferences: List[str]) -> str:
             return pref
 
     gemini_candidates = sorted(m for m in available if "gemini" in m)
-    fallback = gemini_candidates[0] if gemini_candidates else (cleaned[0] if cleaned else DEFAULT_MODEL)
-    log_warning(f"   ⚠️ Kein bevorzugtes Script-Modell verfügbar. Nutze Discovery-Fallback: {fallback}")
+    fallback = (
+        gemini_candidates[0]
+        if gemini_candidates
+        else (cleaned[0] if cleaned else DEFAULT_MODEL)
+    )
+    log_warning(
+        f"   ⚠️ Kein bevorzugtes Script-Modell verfügbar. Nutze Discovery-Fallback: {fallback}"
+    )
     return fallback
 
 
@@ -290,13 +335,17 @@ def _discover_tts_models() -> set[str]:
         if "tts" in model.lower():
             discovered.add(model)
     if not discovered:
-        log_warning("   ⚠️ Keine TTS-Modelle discoverbar. Nutze konfigurierte TTS-Modelle.")
+        log_warning(
+            "   ⚠️ Keine TTS-Modelle discoverbar. Nutze konfigurierte TTS-Modelle."
+        )
     return discovered
 
 
 def _resolve_tts_models(preferences: list[str]) -> list[str]:
     """Filtert bevorzugte Modelle auf tatsächlich verfügbare TTS-Modelle."""
-    cleaned = [_normalize_model_name(m) for m in preferences if _normalize_model_name(m)]
+    cleaned = [
+        _normalize_model_name(m) for m in preferences if _normalize_model_name(m)
+    ]
     available = _discover_tts_models()
     if not available:
         return cleaned
@@ -304,12 +353,16 @@ def _resolve_tts_models(preferences: list[str]) -> list[str]:
     resolved = [m for m in cleaned if m in available]
     dropped = [m for m in cleaned if m not in available]
     if dropped:
-        log_warning(f"   ⚠️ Nicht verfügbare TTS-Modelle übersprungen: {', '.join(dropped)}")
+        log_warning(
+            f"   ⚠️ Nicht verfügbare TTS-Modelle übersprungen: {', '.join(dropped)}"
+        )
     if resolved:
         return resolved
 
     discovered = sorted(available)
-    log_warning(f"   ⚠️ Kein konfiguriertes TTS-Modell verfügbar. Nutze Discovery-Fallback: {', '.join(discovered)}")
+    log_warning(
+        f"   ⚠️ Kein konfiguriertes TTS-Modell verfügbar. Nutze Discovery-Fallback: {', '.join(discovered)}"
+    )
     return discovered
 
 
@@ -317,7 +370,13 @@ def _is_rate_limited_error(err: Exception | str) -> bool:
     msg = str(err).lower()
     if "requests_per_model_per_day" in msg or "quota exceeded" in msg:
         return False
-    return " 429" in msg or "code 429" in msg or "too many requests" in msg or "rate" in msg
+    return (
+        " 429" in msg
+        or "code 429" in msg
+        or "too many requests" in msg
+        or "rate limit" in msg
+        or "resource_exhausted" in msg
+    )
 
 
 def _require_ffmpeg(tool_name: str) -> str:
@@ -339,7 +398,13 @@ def _ensure_audio_tools():
 class _AsciiDotsSpinner:
     """Einfacher ASCII-Spinner für lange Schritte in der Konsole."""
 
-    def __init__(self, label: str, interval: float = 0.35, start_after: float = 0.0, defer_stdout: bool = False):
+    def __init__(
+        self,
+        label: str,
+        interval: float = 0.35,
+        start_after: float = 0.0,
+        defer_stdout: bool = False,
+    ):
         self.label = label
         self.interval = interval
         self.start_after = start_after
@@ -370,7 +435,9 @@ class _AsciiDotsSpinner:
             self._shown = True
             dots = "." * ((tick % 3) + 1)
             with _PRINT_LOCK:
-                builtins.print(f"\r   {self.label} {dots:<3}", end="", flush=True, file=sys.stderr)
+                builtins.print(
+                    f"\r   {self.label} {dots:<3}", end="", flush=True, file=sys.stderr
+                )
                 _SPINNER_LINE_ACTIVE = True
                 _SPINNER_DEFER_OUTPUT = self.defer_stdout
             tick += 1
@@ -386,7 +453,9 @@ class _AsciiDotsSpinner:
         with _PRINT_LOCK:
             if self._shown:
                 builtins.print("\r", end="", file=sys.stderr, flush=True)
-                builtins.print(f"   {self.label} ... {status}", file=sys.stderr, flush=True)
+                builtins.print(
+                    f"   {self.label} ... {status}", file=sys.stderr, flush=True
+                )
             _SPINNER_DEFER_OUTPUT = False
             _ACTIVE_SPINNER = None
             _SPINNER_LINE_ACTIVE = False
@@ -397,7 +466,9 @@ class _AsciiDotsSpinner:
 
 @contextmanager
 def _with_spinner(label: str, start_after: float = 0.0, defer_stdout: bool = False):
-    spinner = _AsciiDotsSpinner(label, start_after=start_after, defer_stdout=defer_stdout)
+    spinner = _AsciiDotsSpinner(
+        label, start_after=start_after, defer_stdout=defer_stdout
+    )
     spinner.start()
     try:
         yield
@@ -405,14 +476,23 @@ def _with_spinner(label: str, start_after: float = 0.0, defer_stdout: bool = Fal
         spinner.stop("abgeschlossen")
 
 
-def _run_step(step_label: str, action: Callable[[], object], spinner_after: float = 10.0, defer_output: bool = False):
-    with _with_spinner(f"{step_label} läuft", start_after=spinner_after, defer_stdout=defer_output):
+def _run_step(
+    step_label: str,
+    action: Callable[[], object],
+    spinner_after: float = 10.0,
+    defer_output: bool = False,
+):
+    with _with_spinner(
+        f"{step_label} läuft", start_after=spinner_after, defer_stdout=defer_output
+    ):
         result = action()
     log_info(f"✅ {step_label} erfolgreich abgeschlossen.")
     return result
 
 
-def _build_step_plan(bot: "PodcastGenerator", generate_video: bool) -> list[tuple[str, Callable[[], object], bool]]:
+def _build_step_plan(
+    bot: "PodcastGenerator", generate_video: bool
+) -> list[tuple[str, Callable[[], object], bool]]:
     """Erzeugt den dynamischen Ausführungsplan inkl. optionalem Videoschritt."""
     plan: list[tuple[str, Callable[[], object], bool]] = [
         ("Trends", bot.research_trends, False),
@@ -474,11 +554,21 @@ def _file_size_or_zero(path: str) -> int:
     return os.path.getsize(path)
 
 
-def _format_subprocess_error(cmd: list[str], exc: subprocess.CalledProcessError | Exception) -> str:
+def _format_subprocess_error(
+    cmd: list[str], exc: subprocess.CalledProcessError | Exception
+) -> str:
     command_str = " ".join(cmd)
     if isinstance(exc, subprocess.CalledProcessError):
-        stderr = exc.stderr.decode("utf-8", errors="replace") if isinstance(exc.stderr, bytes) else (exc.stderr or "")
-        stdout = exc.stdout.decode("utf-8", errors="replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")
+        stderr = (
+            exc.stderr.decode("utf-8", errors="replace")
+            if isinstance(exc.stderr, bytes)
+            else (exc.stderr or "")
+        )
+        stdout = (
+            exc.stdout.decode("utf-8", errors="replace")
+            if isinstance(exc.stdout, bytes)
+            else (exc.stdout or "")
+        )
         output = stderr.strip() or stdout.strip()
         details = output[-800:] if output else "keine weitere Ausgabe"
         return (
@@ -506,6 +596,7 @@ def _parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def _to_ssml(text: str) -> str:
     """Baut SSML aus Klarschrift und wandelt *Wort* in <emphasis> um."""
+
     def _escape_ssml(value: str) -> str:
         return value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
@@ -515,7 +606,9 @@ def _to_ssml(text: str) -> str:
     # 2. Markdown-Bold/Italic (*Wort*) in SSML Emphasis umwandeln
     # Regex sucht nach Sternchen-Paaren und ersetzt sie durch emphasis Tags
     # Das macht die Google Cloud Stimme deutlich lebendiger.
-    safe_text = re.sub(r'\*([^\*]+)\*', r'<emphasis level="moderate">\1</emphasis>', safe_text)
+    safe_text = re.sub(
+        r"\*([^\*]+)\*", r'<emphasis level="moderate">\1</emphasis>', safe_text
+    )
 
     paragraphs = [p.strip() for p in safe_text.split("\n\n") if p.strip()]
 
@@ -538,6 +631,7 @@ def pick_available_model(preferences: List[str]) -> str:
     """Wählt das bestmögliche Modell anhand der Präferenz-Reihenfolge."""
     return _resolve_script_model(preferences)
 
+
 class PodcastGenerator:
     def __init__(self, topic):
         """Kapselt den End-to-End-Podcast-Flow für ein bestimmtes Thema."""
@@ -552,7 +646,9 @@ class PodcastGenerator:
         self.run_manifest_path = ""
         self.sources = []
         self.transcript_path = ""
-        self.checkpoint_path = os.path.join(TEMP_DIR, f"{self.topic_slug}_checkpoint.json")
+        self.checkpoint_path = os.path.join(
+            TEMP_DIR, f"{self.topic_slug}_checkpoint.json"
+        )
         print(f"🚀 Starte Produktion für Thema: '{topic}'\n")
 
     def write_run_manifest(
@@ -591,7 +687,9 @@ class PodcastGenerator:
                 "video": _artifact_path_or_none(self.final_video_path),
                 "script": _artifact_path_or_none(self.transcript_path),
                 "metadata": _artifact_path_or_none(self.metadata_path),
-                "checkpoint": _artifact_path_or_none(self.checkpoint_path if os.path.exists(self.checkpoint_path) else ""),
+                "checkpoint": _artifact_path_or_none(
+                    self.checkpoint_path if os.path.exists(self.checkpoint_path) else ""
+                ),
             },
             "sources": self.sources,
             "error": error,
@@ -622,7 +720,9 @@ class PodcastGenerator:
         if not self.metadata_path or not os.path.exists(self.metadata_path):
             issues.append("Metadaten-Datei fehlt")
 
-        transcript_output = os.path.join(OUTPUT_DIR, f"{self.topic_slug}_transcription.txt")
+        transcript_output = os.path.join(
+            OUTPUT_DIR, f"{self.topic_slug}_transcription.txt"
+        )
         if not os.path.exists(transcript_output):
             issues.append("Transkript-Datei fehlt")
 
@@ -635,9 +735,13 @@ class PodcastGenerator:
         if issues:
             raise RuntimeError("Output-QA fehlgeschlagen: " + "; ".join(issues))
 
-        log_info("🔎 Output-QA erfolgreich: Audio, Metadaten und optionale Artefakte sind plausibel.")
+        log_info(
+            "🔎 Output-QA erfolgreich: Audio, Metadaten und optionale Artefakte sind plausibel."
+        )
 
-    def _write_checkpoint(self, current_step: str, status: str, completed_steps: list[str]):
+    def _write_checkpoint(
+        self, current_step: str, status: str, completed_steps: list[str]
+    ):
         payload = {
             "topic": self.topic,
             "topic_slug": self.topic_slug,
@@ -658,7 +762,9 @@ class PodcastGenerator:
         with open(self.checkpoint_path, "w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False, indent=2)
 
-    def _write_checkpoint_error(self, current_step: str, completed_steps: list[str], error: Exception):
+    def _write_checkpoint_error(
+        self, current_step: str, completed_steps: list[str], error: Exception
+    ):
         payload = {
             "topic": self.topic,
             "topic_slug": self.topic_slug,
@@ -745,7 +851,11 @@ class PodcastGenerator:
             "video": [(self.final_video_path, "Video-Datei")],
             "metadaten": [
                 (self.metadata_path, "Metadaten-Datei"),
-                (self.transcript_path or os.path.join(OUTPUT_DIR, f"{self.topic_slug}_transcription.txt"), "Transkript-Datei"),
+                (
+                    self.transcript_path
+                    or os.path.join(OUTPUT_DIR, f"{self.topic_slug}_transcription.txt"),
+                    "Transkript-Datei",
+                ),
             ],
         }
         missing: list[str] = []
@@ -771,8 +881,12 @@ class PodcastGenerator:
             self._clear_checkpoint(quiet=True)
             return []
         if checkpoint.get("last_error"):
-            log_warning(f"   ⚠️ Letzter Fehler im Checkpoint: {checkpoint['last_error']}")
-        log_info(f"↩️ Checkpoint gefunden. Überspringe bereits abgeschlossene Schritte: {', '.join(completed_steps)}")
+            log_warning(
+                f"   ⚠️ Letzter Fehler im Checkpoint: {checkpoint['last_error']}"
+            )
+        log_info(
+            f"↩️ Checkpoint gefunden. Überspringe bereits abgeschlossene Schritte: {', '.join(completed_steps)}"
+        )
         return completed_steps
 
     def _translate_topic_to_en(self, topic: str) -> str:
@@ -783,7 +897,9 @@ class PodcastGenerator:
             f"{topic}"
         )
         try:
-            resp = _gemini_generate_content_with_retry(model=DEFAULT_MODEL, contents=prompt)
+            resp = _gemini_generate_content_with_retry(
+                model=DEFAULT_MODEL, contents=prompt
+            )
             translated = (resp.text or "").strip().replace("\n", " ")
             return translated or topic
         except Exception as exc:
@@ -815,8 +931,12 @@ class PodcastGenerator:
             from pydantic import BaseModel, Field
 
             class EpisodeMetadata(BaseModel):
-                title: str = Field(description="The title of the episode (max 200 chars).")
-                description: str = Field(description="The description of the episode (max 4000 chars).")
+                title: str = Field(
+                    description="The title of the episode (max 200 chars)."
+                )
+                description: str = Field(
+                    description="The description of the episode (max 4000 chars)."
+                )
 
             cfg = types.GenerateContentConfig(
                 response_mime_type="application/json",
@@ -824,7 +944,9 @@ class PodcastGenerator:
                 temperature=0.7,
             )
 
-            resp = _gemini_generate_content_with_retry(model=model_name, contents=prompt, config=cfg)
+            resp = _gemini_generate_content_with_retry(
+                model=model_name, contents=prompt, config=cfg
+            )
             raw = resp.text or ""
 
             data = json.loads(raw)
@@ -846,14 +968,14 @@ class PodcastGenerator:
         """Holt naheliegende Trends für das Thema aus Google Trends (Deutschland)."""
         print("🔍 1. Analysiere Google Trends...")
         try:
-            pytrends = TrendReq(hl='de', tz=120)
-            pytrends.build_payload([self.topic], cat=0, timeframe='today 1-m', geo='DE')
+            pytrends = TrendReq(hl="de", tz=120)
+            pytrends.build_payload([self.topic], cat=0, timeframe="today 1-m", geo="DE")
             related = pytrends.related_queries()
-            
-            if self.topic in related and related[self.topic]['top'] is not None:
-                df = related[self.topic]['top']
+
+            if self.topic in related and related[self.topic]["top"] is not None:
+                df = related[self.topic]["top"]
                 if not df.empty:
-                    top_query = df.iloc[0]['query']
+                    top_query = df.iloc[0]["query"]
                     print(f"   -> Trend gefunden: '{top_query}'")
                     self.topic = top_query
             else:
@@ -874,7 +996,7 @@ class PodcastGenerator:
 
         # Prompt mit extremer Fokus auf Wortanzahl-Limits
         system_instruction = f"Du bist Redakteur und Podcast-Host des preisgekrönten Podcasts '{PODCAST_NAME}'. Slogan: '{SLOGAN}'."
-        
+
         prompt = f"""Schreibe ein Podcast-Skript zum Thema '{self.topic}'.
 
 ABSOLUT STRIKTE REGELN (NICHT BREAKBAR):
@@ -903,7 +1025,7 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
             max_words=SCRIPT_MAX_WORDS,
             draft="{draft}",
         )
-        
+
         preferred = [
             "gemini-3.1-pro-preview",
             "gemini-3-pro-preview",
@@ -927,23 +1049,29 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
             for attempt in range(1, attempts + 1):
                 if attempt == 1:
                     print("   -> Generiere Skript (Streaming): ", end="", flush=True)
-                    resp_stream = _gemini_generate_content_stream_with_retry(model=model_name, contents=prompt, config=cfg)
+                    resp_stream = _gemini_generate_content_stream_with_retry(
+                        model=model_name, contents=prompt, config=cfg
+                    )
                     raw_text_stream = ""
                     for chunk in resp_stream:
                         if chunk.text:
                             raw_text_stream += chunk.text
                             print(chunk.text, end="", flush=True)
                     print()
+
                     class DummyResponse:
                         pass
+
                     response = DummyResponse()
                     response.text = raw_text_stream
                 else:
-                    print(f"   ⚠️  Skript verletzt Constraints. Versuch {attempt}/{attempts}...")
+                    print(
+                        f"   ⚠️  Skript verletzt Constraints. Versuch {attempt}/{attempts}..."
+                    )
                     response = _gemini_generate_content_with_retry(
                         model=model_name,
                         contents=fixup_prompt.format(draft=raw_text),
-                        config=cfg
+                        config=cfg,
                     )
 
                 raw_text = response.text or ""
@@ -976,14 +1104,21 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
                 )
 
                 # Intelligente Nachbearbeitung: Absatz-Struktur reparieren
-                if not validation["ok"] and validation["paragraph_count"] != SCRIPT_EXPECTED_PARAGRAPHS:
-                    cleaned_text, fixed_validation = self._repair_paragraph_structure(cleaned_text)
+                if (
+                    not validation["ok"]
+                    and validation["paragraph_count"] != SCRIPT_EXPECTED_PARAGRAPHS
+                ):
+                    cleaned_text, fixed_validation = self._repair_paragraph_structure(
+                        cleaned_text
+                    )
                     if fixed_validation["ok"]:
                         validation = fixed_validation
 
                 # Intelligente Nachbearbeitung: Wortanzahl reduzieren, falls zu lang
                 if not validation["ok"] and validation["word_count"] > SCRIPT_MAX_WORDS:
-                    cleaned_text = self._reduce_word_count(cleaned_text, SCRIPT_MAX_WORDS)
+                    cleaned_text = self._reduce_word_count(
+                        cleaned_text, SCRIPT_MAX_WORDS
+                    )
                     validation = _validate_script_constraints(
                         cleaned_text,
                         min_words=SCRIPT_MIN_WORDS,
@@ -1008,72 +1143,83 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
                     + " | ".join(last_errors)
                 )
 
-            self.transcript_path = os.path.join(TEMP_DIR, f"{self.topic_slug}_script.txt")
+            self.transcript_path = os.path.join(
+                TEMP_DIR, f"{self.topic_slug}_script.txt"
+            )
             with open(self.transcript_path, "w", encoding="utf-8") as f:
                 f.write(self.script_content)
 
             print("   -> Skript generiert.")
         except Exception as e:
-            raise RuntimeError(f"Gemini API Fehler: {e}")
+            raise RuntimeError(f"Gemini API Fehler: {e}") from e
 
     def _repair_paragraph_structure(self, text: str) -> tuple[str, dict]:
         """Versucht, Text in GENAU 5 Absätze zu reorganisieren."""
         from utils import _count_words
-        
+
         # Extrahiere alle nicht-leeren Zeilen
         lines = [line for line in text.splitlines() if line.strip()]
         if not lines:
             return text, {"ok": False, "errors": ["Text ist leer"]}
-        
+
         # Strategie: Versuche, den Text intelligent auf 5 größere Absätze aufzuteilen
         total_words = _count_words(text)
         target_words_per_para = total_words // 5  # Ca. 1/5 pro Absatz
-        
+
         # Teile in groben Blöcken auf
         paragraphs = []
         current_block = []
         word_count = 0
-        
+
         for line in lines:
             line_words = _count_words(line)
             current_block.append(line)
             word_count += line_words
-            
+
             # Wenn wir ungefähr 1/5 pro Absatz erreicht haben und ein gutes Bruchstück-Punkt ist
             if word_count >= target_words_per_para * 0.8 and len(paragraphs) < 4:
                 paragraphs.append(" ".join(current_block))
                 current_block = []
                 word_count = 0
-        
+
         # Rest in den letzten Absatz
         if current_block:
             paragraphs.append(" ".join(current_block))
-        
+
         # Falls immer noch nicht genau 5, passe an
         while len(paragraphs) < 5:
             # Teile den längsten Absatz auf
-            longest_idx = max(range(len(paragraphs)), key=lambda i: _count_words(paragraphs[i]))
+            longest_idx = max(
+                range(len(paragraphs)), key=lambda i: _count_words(paragraphs[i])
+            )
             longest = paragraphs[longest_idx]
-            sentences = re.split(r'(?<=[.!?])\s+', longest)
-            
+            sentences = re.split(r"(?<=[.!?])\s+", longest)
+
             if len(sentences) > 2:
                 mid = len(sentences) // 2
                 paragraphs[longest_idx] = " ".join(sentences[:mid])
                 paragraphs.insert(longest_idx + 1, " ".join(sentences[mid:]))
             else:
                 break  # Kann nicht weiter teilen
-        
+
         while len(paragraphs) > 5:
             # Merge the two shortest paragraphs
-            shortest_pairs = [(i, i+1) for i in range(len(paragraphs)-1)]
+            shortest_pairs = [(i, i + 1) for i in range(len(paragraphs) - 1)]
             if not shortest_pairs:
                 break
-            merge_idx = min(shortest_pairs, key=lambda p: _count_words(paragraphs[p[0]]) + _count_words(paragraphs[p[1]]))[0]
-            paragraphs[merge_idx] = paragraphs[merge_idx] + " " + paragraphs[merge_idx + 1]
+            merge_idx = min(
+                shortest_pairs,
+                key=lambda p: (
+                    _count_words(paragraphs[p[0]]) + _count_words(paragraphs[p[1]])
+                ),
+            )[0]
+            paragraphs[merge_idx] = (
+                paragraphs[merge_idx] + " " + paragraphs[merge_idx + 1]
+            )
             del paragraphs[merge_idx + 1]
-        
+
         repaired_text = "\n\n".join(paragraphs)
-        
+
         # Validiere die neue Struktur
         validation = _validate_script_constraints(
             repaired_text,
@@ -1082,44 +1228,46 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
             min_paragraphs=SCRIPT_MIN_PARAGRAPHS,
             expected_paragraphs=SCRIPT_EXPECTED_PARAGRAPHS,
         )
-        
+
         return repaired_text, validation
 
     def _reduce_word_count(self, text: str, target_max: int) -> str:
         """Kürzt Text intelligent auf Zielwortanzahl, indem unwichtige Wörter gelöscht werden."""
         from utils import _count_words
-        
+
         current_words = _count_words(text)
         if current_words <= target_max:
             return text
-        
+
         # Strategie: Entferne Fullwörter und Phrasen, die nicht essentiell sind
         removed_phrases = [
-            r'\b(auch|ebenso|darüber hinaus|gemäß|laut der Forschung|wie bereits erwähnt)\b',
-            r'\b(zum Beispiel|beispielsweise|etwa|etc\.|usw\.)\b',
-            r',\s*(die auch|der auch|das auch)',
-            r'\s*(besonders|ganz|sehr|wirklich|wirklich|definitiv|absolut)\s+',
+            r"\b(auch|ebenso|darüber hinaus|gemäß|laut der Forschung|wie bereits erwähnt)\b",
+            r"\b(zum Beispiel|beispielsweise|etwa|etc\.|usw\.)\b",
+            r",\s*(die auch|der auch|das auch)",
+            r"\s*(besonders|ganz|sehr|wirklich|wirklich|definitiv|absolut)\s+",
         ]
-        
+
         shortened = text
         for pattern in removed_phrases:
-            shortened = re.sub(pattern, '', shortened, flags=re.IGNORECASE)
+            shortened = re.sub(pattern, "", shortened, flags=re.IGNORECASE)
             current_words = _count_words(shortened)
             if current_words <= target_max:
                 return shortened.strip()
-        
+
         # Fallback: Entferne von hinten (letzte Sätze/Phrasen)
         paragraphs = [p.strip() for p in shortened.split("\n\n") if p.strip()]
-        while len(paragraphs) > 0 and _count_words("\n\n".join(paragraphs)) > target_max:
+        while (
+            len(paragraphs) > 0 and _count_words("\n\n".join(paragraphs)) > target_max
+        ):
             # Entferne letzte Sätze aus dem letzten Absatz
             last_para = paragraphs[-1]
-            sentences = re.split(r'(?<=[.!?])\s+', last_para)
+            sentences = re.split(r"(?<=[.!?])\s+", last_para)
             if len(sentences) > 1:
                 sentences.pop()
                 paragraphs[-1] = " ".join(sentences)
             else:
                 paragraphs.pop()
-        
+
         return "\n\n".join(paragraphs).strip()
 
     # --------------------------------------------------------------------------
@@ -1139,13 +1287,14 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
             print(f"   -> Übersetztes Suchthema: '{search_topic}'")
 
         try:
+
             def _search_and_download(query: str) -> bool:
                 url = "https://freesound.org/apiv2/search/text/"
                 params = {
                     "query": query,
                     "token": FREESOUND_API_KEY,
                     "sort": "rating_desc",
-                    "filter": "duration:[60 TO 300]"
+                    "filter": "duration:[60 TO 300]",
                 }
                 resp = _request_with_retry(url, params=params)
                 data = resp.json()
@@ -1153,12 +1302,16 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
                     track = data["results"][0]
                     track_id = track["id"]
                     detail_url = f"https://freesound.org/apiv2/sounds/{track_id}/"
-                    d_r = _request_with_retry(detail_url, params={"token": FREESOUND_API_KEY})
+                    d_r = _request_with_retry(
+                        detail_url, params={"token": FREESOUND_API_KEY}
+                    )
                     track_details = d_r.json()
                     preview_url = track_details["previews"]["preview-hq-mp3"]
                     print(f"   -> Lade herunter: {track['name']}")
                     mp3_r = _request_with_retry(preview_url)
-                    self.music_path = os.path.join(TEMP_DIR, f"{self.topic_slug}_music_download.mp3")
+                    self.music_path = os.path.join(
+                        TEMP_DIR, f"{self.topic_slug}_music_download.mp3"
+                    )
                     with open(self.music_path, "wb") as f:
                         f.write(mp3_r.content)
                     return True
@@ -1179,7 +1332,8 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
 
         except Exception as e:
             print(f"   ⚠️ Musik-Fehler: {e}. Nutze Stille.")
-            self.music_path = None
+            self.music_path = os.path.join(TEMP_DIR, f"{self.topic_slug}_silence.mp3")
+            AudioSegment.silent(duration=10000).export(self.music_path, format="mp3")
 
     # --------------------------------------------------------------------------
     # 4. STIMME (Google Cloud TTS mit Fallback & SSML)
@@ -1192,7 +1346,9 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
 
         tts_models = _resolve_tts_models(_tts_model_preferences())
         voice_name = TTS_VOICE_NAME or "umbriel"
-        print(f"   -> Verwende TTS-Modelle: {', '.join(tts_models)} (Stimme: {voice_name})")
+        print(
+            f"   -> Verwende TTS-Modelle: {', '.join(tts_models)} (Stimme: {voice_name})"
+        )
 
         chunks = _chunk_text(self.script_content)
         print(f"   -> Verarbeite {len(chunks)} Text-Abschnitte...")
@@ -1209,7 +1365,9 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
         for seg in valid_segments[1:]:
             final_voice = final_voice.append(seg, crossfade=100)
 
-        self.audio_voice_path = os.path.join(TEMP_DIR, f"{self.topic_slug}_voice_raw.mp3")
+        self.audio_voice_path = os.path.join(
+            TEMP_DIR, f"{self.topic_slug}_voice_raw.mp3"
+        )
         final_voice.export(self.audio_voice_path, format="mp3")
         print("   -> Sprachdatei erstellt.")
 
@@ -1217,19 +1375,19 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
         msg = str(exc).lower()
         if "requests_per_model_per_day" in msg or "quota exceeded" in msg:
             return False
-        return (
-            "429" in msg
-            or "resource_exhausted" in msg
-            or "too many requests" in msg
-        )
+        return "429" in msg or "resource_exhausted" in msg or "too many requests" in msg
 
-    def _part_to_segment(self, part: types.Part, chunk_idx: int, cand_idx: int) -> AudioSegment:
+    def _part_to_segment(
+        self, part: types.Part, chunk_idx: int, cand_idx: int
+    ) -> AudioSegment:
         if not part.inline_data or not part.inline_data.data:
             raise RuntimeError(f"Chunk {chunk_idx}: Leere Audio-Teilantwort")
         data = part.inline_data.data
         mime = part.inline_data.mime_type or "audio/wav"
         if not mime.startswith("audio/"):
-            raise RuntimeError(f"Chunk {chunk_idx}: Kein Audio (mime={mime}, cand={cand_idx})")
+            raise RuntimeError(
+                f"Chunk {chunk_idx}: Kein Audio (mime={mime}, cand={cand_idx})"
+            )
 
         if "L16" in mime or "pcm" in mime:
             try:
@@ -1262,10 +1420,11 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
                 f"Chunk {chunk_idx}: Audio-Dekodierung fehlgeschlagen (mime={mime}, len={len(data)}, cand={cand_idx}): {e}"
             )
 
-    def _generate_chunk_with_gemini(self, chunk_idx: int, chunk_text: str, model_tts: str, voice_name: str) -> AudioSegment:
+    def _generate_chunk_with_gemini(
+        self, chunk_idx: int, chunk_text: str, model_tts: str, voice_name: str
+    ) -> AudioSegment:
         content = types.Content(
-            role="user",
-            parts=[types.Part.from_text(text=chunk_text)]
+            role="user", parts=[types.Part.from_text(text=chunk_text)]
         )
 
         cfg = types.GenerateContentConfig(
@@ -1273,15 +1432,21 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
             response_modalities=["audio"],
             speech_config=types.SpeechConfig(
                 voice_config=types.VoiceConfig(
-                    prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=voice_name)
+                    prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                        voice_name=voice_name
+                    )
                 )
             ),
         )
 
-        resp = _gemini_generate_content_with_retry(model=model_tts, contents=[content], config=cfg)
+        resp = _gemini_generate_content_with_retry(
+            model=model_tts, contents=[content], config=cfg
+        )
         for cand_idx, cand in enumerate(resp.candidates or []):
             if not cand.content:
-                print(f"   ⚠️ Leerer Content in Candidate {cand_idx} (Grund: {getattr(cand, 'finish_reason', 'Unbekannt')})")
+                print(
+                    f"   ⚠️ Leerer Content in Candidate {cand_idx} (Grund: {getattr(cand, 'finish_reason', 'Unbekannt')})"
+                )
                 continue
             for part in cand.content.parts or []:
                 try:
@@ -1289,9 +1454,13 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
                 except RuntimeError as e:
                     print(f"   ⚠️ {e}")
                     continue
-        raise RuntimeError(f"Keine Audio-Daten im Response (Chunk {chunk_idx}, Modell {model_tts})")
+        raise RuntimeError(
+            f"Keine Audio-Daten im Response (Chunk {chunk_idx}, Modell {model_tts})"
+        )
 
-    def _generate_chunk_with_gcloud(self, chunk_idx: int, chunk_text: str) -> AudioSegment:
+    def _generate_chunk_with_gcloud(
+        self, chunk_idx: int, chunk_text: str
+    ) -> AudioSegment:
         tts_client = texttospeech.TextToSpeechClient()
         voice_params = texttospeech.VoiceSelectionParams(
             language_code="de-DE",
@@ -1310,22 +1479,30 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
             audio_config=audio_config,
         )
         if not response.audio_content:
-            raise RuntimeError(f"Chunk {chunk_idx}: Leere Audio-Antwort von Google Cloud TTS")
+            raise RuntimeError(
+                f"Chunk {chunk_idx}: Leere Audio-Antwort von Google Cloud TTS"
+            )
         audio_bytes = io.BytesIO(response.audio_content)
         return AudioSegment.from_file(audio_bytes, format="mp3")
 
     def _process_chunk(self, idx, chunk, model_tts, voice_name, max_attempts=3):
         for attempt in range(1, max_attempts + 1):
             try:
-                return self._generate_chunk_with_gemini(idx, chunk, model_tts, voice_name)
+                return self._generate_chunk_with_gemini(
+                    idx, chunk, model_tts, voice_name
+                )
             except Exception as e:
                 if self._is_rate_limit_error(e) and attempt < max_attempts:
-                    delay = 4 ** attempt
-                    print(f"   ⚠️  Rate-Limit bei Chunk {idx} (Versuch {attempt}/{max_attempts}), warte {delay}s...")
+                    delay = 4**attempt
+                    print(
+                        f"   ⚠️  Rate-Limit bei Chunk {idx} (Versuch {attempt}/{max_attempts}), warte {delay}s..."
+                    )
                     time.sleep(delay)
                     continue
                 if self._is_rate_limit_error(e) and attempt == max_attempts:
-                    print("   ⚠️  Rate-Limit erschöpft, wechsle zu Google Cloud TTS Fallback...")
+                    print(
+                        "   ⚠️  Rate-Limit erschöpft, wechsle zu Google Cloud TTS Fallback..."
+                    )
                     raise e
                 print(f"   ❌ Fehler bei Chunk {idx}: {e}")
                 raise
@@ -1343,7 +1520,9 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
                     return idx, seg
                 except Exception as err:
                     gem_err = err
-                    print(f"   ⚠️ Modell-Fallback: {model_tts} fehlgeschlagen (Chunk {idx}): {err}")
+                    print(
+                        f"   ⚠️ Modell-Fallback: {model_tts} fehlgeschlagen (Chunk {idx}): {err}"
+                    )
 
             try:
                 print(f"      -> Nutze Cloud TTS mit SSML für Chunk {idx}...")
@@ -1351,12 +1530,17 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
                 print(f"   ✅ Chunk {idx + 1}/{len(chunks)} fertig (Cloud TTS)")
                 return idx, seg
             except Exception as gc_err:
-                print(f"   ❌ Google Cloud TTS Fehler (Fallback) bei Chunk {idx}: {gc_err}")
+                print(
+                    f"   ❌ Google Cloud TTS Fehler (Fallback) bei Chunk {idx}: {gc_err}"
+                )
                 raise gem_err or gc_err
 
         # Verarbeite maximal 3 Chunks gleichzeitig (schont API-Rate-Limits)
         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
-            futures = [executor.submit(_process_single, i, chunk) for i, chunk in enumerate(chunks)]
+            futures = [
+                executor.submit(_process_single, i, chunk)
+                for i, chunk in enumerate(chunks)
+            ]
             for future in concurrent.futures.as_completed(futures):
                 idx, seg = future.result()
                 segments[idx] = seg
@@ -1376,40 +1560,65 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
             try:
                 # Dauer der Stimme ermitteln (ffprobe)
                 cmd_probe = [
-                    "ffprobe", "-v", "error", "-show_entries",
-                    "format=duration", "-of",
-                    "default=noprint_wrappers=1:nokey=1", self.audio_voice_path
+                    "ffprobe",
+                    "-v",
+                    "error",
+                    "-show_entries",
+                    "format=duration",
+                    "-of",
+                    "default=noprint_wrappers=1:nokey=1",
+                    self.audio_voice_path,
                 ]
-                voice_len_s = float(subprocess.check_output(cmd_probe).decode("utf-8").strip())
+                voice_len_s = float(
+                    subprocess.check_output(cmd_probe, timeout=120)
+                    .decode("utf-8")
+                    .strip()
+                )
             except Exception as e:
-                print(f"   ⚠️ Konnte Länge der Stimme nicht ermitteln: {e}. Nutze Fallback.")
+                print(
+                    f"   ⚠️ Konnte Länge der Stimme nicht ermitteln: {e}. Nutze Fallback."
+                )
                 voice_len_s = 60.0
 
             target_len_s = voice_len_s + 2.0
             fade_start_s = target_len_s - 1.5
 
             cmd = [
-                "ffmpeg", "-y",
-                "-stream_loop", "-1", "-i", self.music_path,
-                "-i", self.audio_voice_path,
+                "ffmpeg",
+                "-y",
+                "-stream_loop",
+                "-1",
+                "-i",
+                self.music_path,
+                "-i",
+                self.audio_voice_path,
                 "-filter_complex",
                 f"[0:a]volume=0.12589,afade=t=out:st={fade_start_s}:d=1.5[bg];"
                 f"[1:a]adelay=200|200,apad=pad_dur=2[v_padded];"
                 f"[v_padded][bg]amix=inputs=2:duration=first:dropout_transition=2[aout]",
-                "-map", "[aout]",
-                "-c:a", "libmp3lame", "-b:a", "192k",
-                self.final_audio_path
+                "-map",
+                "[aout]",
+                "-c:a",
+                "libmp3lame",
+                "-b:a",
+                "192k",
+                self.final_audio_path,
             ]
         else:
             cmd = [
-                "ffmpeg", "-y",
-                "-i", self.audio_voice_path,
-                "-c:a", "libmp3lame", "-b:a", "192k",
-                self.final_audio_path
+                "ffmpeg",
+                "-y",
+                "-i",
+                self.audio_voice_path,
+                "-c:a",
+                "libmp3lame",
+                "-b:a",
+                "192k",
+                self.final_audio_path,
             ]
 
         try:
-            subprocess.run(cmd, capture_output=True, check=True)
+            subprocess.run(cmd, capture_output=True, check=True, timeout=120)
             print(f"   -> Audio fertig: {self.final_audio_path}")
         except subprocess.CalledProcessError as exc:
             raise RuntimeError(
@@ -1427,7 +1636,7 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
         print("🎬 6. Erstelle YouTube-Video...")
         cover_png = os.path.join(ASSETS_DIR, "cover.png")
         cover_jpg = os.path.join(ASSETS_DIR, "cover.jpg")
-        
+
         if os.path.exists(cover_png):
             cover_image = cover_png
         elif os.path.exists(cover_jpg):
@@ -1440,23 +1649,36 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
         self.final_video_path = os.path.join(OUTPUT_DIR, video_filename)
 
         cmd = [
-            "ffmpeg", "-y",
-            "-loop", "1",
-            "-framerate", "1",
-            "-i", cover_image,
-            "-i", self.final_audio_path,
-            "-c:v", "libx264",
-            "-preset", "ultrafast",
-            "-tune", "stillimage",
-            "-c:a", "aac", "-b:a", "192k",
-            "-pix_fmt", "yuv420p",
-            "-r", "1",
+            "ffmpeg",
+            "-y",
+            "-loop",
+            "1",
+            "-framerate",
+            "1",
+            "-i",
+            cover_image,
+            "-i",
+            self.final_audio_path,
+            "-c:v",
+            "libx264",
+            "-preset",
+            "ultrafast",
+            "-tune",
+            "stillimage",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "192k",
+            "-pix_fmt",
+            "yuv420p",
+            "-r",
+            "1",
             "-shortest",
-            self.final_video_path
+            self.final_video_path,
         ]
-        
+
         try:
-            subprocess.run(cmd, capture_output=True, check=True)
+            subprocess.run(cmd, capture_output=True, check=True, timeout=120)
             print(f"   -> Video fertig: {self.final_video_path}")
         except subprocess.CalledProcessError as exc:
             raise RuntimeError(
@@ -1483,7 +1705,8 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
 
         meta = {
             "title": episode_title or f"{PODCAST_NAME}: {self.topic}",
-            "description": episode_desc or f"{SLOGAN}\n\n{self.script_content[:150]}...",
+            "description": episode_desc
+            or f"{SLOGAN}\n\n{self.script_content[:150]}...",
             "episode_title": episode_title,
             "episode_description": episode_desc,
             "files": {
@@ -1501,6 +1724,7 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
         self.metadata_path = meta_output_path
         print(f"   -> Transkript gespeichert: {transcription_output_path}")
         print(f"   -> Metadaten gespeichert: {meta_output_path}")
+
 
 def _pick_realtime_title(df_rt):
     """Liest den bestmöglichen Titel aus realtime_trending_searches."""
@@ -1541,7 +1765,9 @@ def _search_realtime(pytrends, country_code, debug_today):
     try:
         df_rt = pytrends.realtime_trending_searches(pn=country_code, count=50)
         if df_rt is not None:
-            debug_today[f"{country_code}-realtime"] = df_rt.head().to_string(index=False)
+            debug_today[f"{country_code}-realtime"] = df_rt.head().to_string(
+                index=False
+            )
         pick = _pick_realtime_title(df_rt)
         if pick:
             return pick
@@ -1557,14 +1783,16 @@ def _search_legacy(pytrends, country_code, debug_today):
     """Sucht Trends über trending_searches (Legacy)."""
     try:
         pn_map = {
-            'DE': 'germany',
-            'AT': 'austria',
-            'CH': 'switzerland',
+            "DE": "germany",
+            "AT": "austria",
+            "CH": "switzerland",
         }
-        pn_val = pn_map.get(country_code, 'germany')
+        pn_val = pn_map.get(country_code, "germany")
         df_legacy = pytrends.trending_searches(pn=pn_val)
         if df_legacy is not None:
-            debug_today[f"{country_code}-legacy"] = df_legacy.head().to_string(index=False)
+            debug_today[f"{country_code}-legacy"] = df_legacy.head().to_string(
+                index=False
+            )
         if df_legacy is not None and not df_legacy.empty:
             return df_legacy.iloc[0, 0]
     except Exception as err:
@@ -1620,7 +1848,9 @@ def _try_today(pytrends, country_code: str, debug_today):
 if __name__ == "__main__":
     args = _parse_cli_args()
     if args.resume and args.force_restart:
-        raise RuntimeError("--resume und --force-restart koennen nicht gleichzeitig genutzt werden.")
+        raise RuntimeError(
+            "--resume und --force-restart koennen nicht gleichzeitig genutzt werden."
+        )
 
     run_started_at = time.time()
 
@@ -1638,13 +1868,13 @@ if __name__ == "__main__":
     if not topic:
         print("🔍 Keine Eingabe. Suche nach aktuellen Trends in Deutschland...")
         try:
-            pytrends = TrendReq(hl='de', tz=120)
+            pytrends = TrendReq(hl="de", tz=120)
             debug_today = {}
 
             trend_topic = (
-                _try_today(pytrends, 'DE', debug_today)
-                or _try_today(pytrends, 'AT', debug_today)
-                or _try_today(pytrends, 'CH', debug_today)
+                _try_today(pytrends, "DE", debug_today)
+                or _try_today(pytrends, "AT", debug_today)
+                or _try_today(pytrends, "CH", debug_today)
             )
 
             if trend_topic:
@@ -1661,7 +1891,12 @@ if __name__ == "__main__":
     bot = PodcastGenerator(topic)
     run_error: str | None = None
     try:
-        _execute_pipeline(bot, GENERATE_VIDEO, resume_enabled=args.resume, force_restart=args.force_restart)
+        _execute_pipeline(
+            bot,
+            GENERATE_VIDEO,
+            resume_enabled=args.resume,
+            force_restart=args.force_restart,
+        )
         bot.validate_outputs(GENERATE_VIDEO)
     except Exception as exc:
         run_error = str(exc)
@@ -1684,5 +1919,5 @@ if __name__ == "__main__":
         force_restart=args.force_restart,
         status="completed",
     )
-    
+
     print("\n✅ ALLES ERLEDIGT!")

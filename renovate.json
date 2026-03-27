@@ -1,0 +1,30 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended"
+  ],
+  "labels": ["dependencies"],
+  "prConcurrentLimit": 3,
+  "prHourlyLimit": 2,
+  "schedule": ["before 7am on Monday"],
+  "pip_requirements": {
+    "enabled": true,
+    "fileMatch": ["(^|/)requirements\\.txt$"]
+  },
+  "packageRules": [
+    {
+      "description": "Python-Abhaengigkeiten aus requirements.txt gruppieren",
+      "matchManagers": ["pip_requirements"],
+      "groupName": "Python dependencies",
+      "labels": ["dependencies", "python"],
+      "automerge": false,
+      "rangeStrategy": "bump"
+    }
+  ],
+  "ignorePaths": [
+    ".venv/**",
+    "**/.venv/**"
+  ],
+  "commitMessagePrefix": "chore(deps):",
+  "rebaseWhen": "conflicted"
+}

@@ -1,0 +1,46 @@
+name: Renovate
+
+on:
+  # Jeden Montag um 06:00 UTC automatisch ausfuehren
+  schedule:
+    - cron: '0 6 * * 1'
+  # Manuell ausfuehrbar ueber GitHub UI oder gh workflow run
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Trockenlauf (keine PRs erstellen)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+
+jobs:
+  renovate:
+    name: Renovate dependency scan
+    runs-on: ubuntu-latest
+    # Verhindert parallele Laeufe (z.B. manuell + geplant gleichzeitig)
+    concurrency:
+      group: renovate
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Self-hosted Renovate
+        uses: renovatebot/github-action@v46.1.6
+        env:
+          # LOG_LEVEL steuert die Ausgabe: debug | info | warn | error
+          LOG_LEVEL: info
+          # Trockenlauf via workflow_dispatch Input
+          RENOVATE_DRY_RUN: ${{ github.event.inputs.dry_run == 'true' && 'full' || '' }}
+        with:
+          # RENOVATE_TOKEN muss als Repository-Secret hinterlegt sein.
+          # Benoetigt einen klassischen Personal Access Token (PAT) mit:
+          #   - scope "repo" (fuer private Repos) oder "public_repo" (fuer public)
+          #   - scope "workflow" (damit Renovate auch Actions-Workflows aktualisieren kann)
+          # GitHub-eigenes GITHUB_TOKEN funktioniert NICHT, weil dadurch
+          # keine CI-Workflows auf den erstellten PRs ausgeloest werden.
+          token: ${{ secrets.RENOVATE_TOKEN }}

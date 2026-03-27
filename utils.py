@@ -6,9 +6,34 @@ def _spell_out_abbreviations(text: str) -> str:
     """Expand 2-3 letter uppercase abbreviations (e.g., KI -> K I) for TTS clarity."""
     pattern = re.compile(r"(?<!#)\b([A-ZÄÖÜ]{2,3})\b")  # Hashtags ausnehmen
     stoplist = {
-        "DER", "DIE", "DAS", "UND", "DEN", "DEM", "DES", "EIN", "EINE",
-        "VON", "MIT", "AUS", "IM", "IN", "AM", "BEI", "AUF", "FÜR", "AN",
-        "IST", "SIND", "ICH", "DU", "ER", "SIE", "ES", "WIR", "IHR",
+        "DER",
+        "DIE",
+        "DAS",
+        "UND",
+        "DEN",
+        "DEM",
+        "DES",
+        "EIN",
+        "EINE",
+        "VON",
+        "MIT",
+        "AUS",
+        "IM",
+        "IN",
+        "AM",
+        "BEI",
+        "AUF",
+        "FÜR",
+        "AN",
+        "IST",
+        "SIND",
+        "ICH",
+        "DU",
+        "ER",
+        "SIE",
+        "ES",
+        "WIR",
+        "IHR",
     }
 
     def repl(match: re.Match) -> str:  # type: ignore[type-arg]
@@ -51,7 +76,9 @@ def _validate_script_constraints(
     heading_pattern = re.compile(r"^\s*[A-Za-zÄÖÜäöüß][\wÄÖÜäöüß\s]*:\s*$")
     divider_pattern = re.compile(r"^\s*-{3,}\s*$")
     bullet_pattern = re.compile(r"^\s*([-*]|\d+\.)\s+")
-    stage_pattern = re.compile(r"\b(musik|jingle|sound|atmos|beat|lacht|faded)\b", re.IGNORECASE)
+    stage_pattern = re.compile(
+        r"\b(musik|jingle|sound|atmos|beat|lacht|faded)\b", re.IGNORECASE
+    )
 
     found_heading = False
     found_divider = False
@@ -116,6 +143,10 @@ def _validate_script_constraints(
 
 def _chunk_text(text: str, max_chars: int = 1500) -> List[str]:
     """Zerteilt Text nach Absätzen, damit TTS-Limits eingehalten werden."""
+    if max_chars <= 0:
+        raise ValueError(
+            f"max_chars muss eine positive Zahl sein, ist aber {max_chars!r}."
+        )
     paragraphs = [p for p in text.split("\n\n") if p.strip()]
     chunks = []
     current: List[str] = []

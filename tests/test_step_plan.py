@@ -1,43 +1,8 @@
 import json
 import os
-import sys
 from pathlib import Path
 
-
-def _load_partial_module():
-    module_path = Path(__file__).resolve().parent.parent / "podcast_generator.py"
-    source = module_path.read_text(encoding="utf-8")
-    marker = "# ==============================================================================\n# HAUPTPROGRAMM"
-    cutoff = source.find(marker)
-    if cutoff == -1:
-        raise RuntimeError("main marker not found")
-    partial_source = source[:cutoff]
-
-    os.environ.setdefault("GEMINI_API_KEY", "test-key")
-    os.environ.setdefault("GOOGLE_APPLICATION_CREDENTIALS", "dummy.json")
-    os.environ.setdefault("FREESOUND_API_KEY", "dummy-key")
-    os.environ.setdefault("PODCAST_NAME", "Test Podcast")
-    os.environ.setdefault("PODCAST_SLOGAN", "Test Slogan")
-    os.environ.setdefault("PODCAST_TEMP_DIR", "temp_assets")
-    os.environ.setdefault("PODCAST_OUTPUT_DIR", "finished_episodes")
-    os.environ.setdefault("PODCAST_ASSETS_DIR", "assets")
-    os.environ.setdefault("SCRIPT_DEFAULT_MODEL", "gemini-3.1-pro-preview")
-
-    class _DummyModels:
-        def list(self):
-            return []
-
-    class _DummyClient:
-        def __init__(self, *args, **kwargs):
-            self.models = _DummyModels()
-
-    import google
-
-    setattr(google, "genai", type("GenAIStub", (), {"Client": _DummyClient}))
-
-    namespace = {"__name__": "podcast_generator_test"}
-    exec(compile(partial_source, str(module_path), "exec"), namespace)
-    return namespace
+from conftest import _load_partial_module
 
 
 class _BotStub:
@@ -69,7 +34,15 @@ def test_build_step_plan_includes_video_when_enabled():
     plan = build_step_plan(_BotStub(), True)
 
     names = [entry[0] for entry in plan]
-    assert names == ["Trends", "Skript", "Musik", "Stimme", "Mixing", "Video", "Metadaten"]
+    assert names == [
+        "Trends",
+        "Skript",
+        "Musik",
+        "Stimme",
+        "Mixing",
+        "Video",
+        "Metadaten",
+    ]
 
 
 def test_build_step_plan_renumbers_when_video_disabled():
@@ -86,7 +59,10 @@ def test_slugify_filename_normalizes_topic():
     mod = _load_partial_module()
     slugify = mod["_slugify_filename"]
 
-    assert slugify("Coinkite Coldcard Q Hardware Wallet") == "Coinkite_Coldcard_Q_Hardware_Wallet"
+    assert (
+        slugify("Coinkite Coldcard Q Hardware Wallet")
+        == "Coinkite_Coldcard_Q_Hardware_Wallet"
+    )
     assert slugify("  !!!  ") == "podcast_run"
 
 
@@ -121,7 +97,9 @@ def test_resume_completed_steps_restores_checkpoint_artifacts(tmp_path):
         "completed_steps": ["skript", "stimme", "mixing", "metadaten"],
         "artifacts": {},
     }
-    Path(bot.checkpoint_path).write_text(json.dumps(checkpoint_payload), encoding="utf-8")
+    Path(bot.checkpoint_path).write_text(
+        json.dumps(checkpoint_payload), encoding="utf-8"
+    )
 
     completed = bot.resume_completed_steps()
 
@@ -154,7 +132,9 @@ def test_resume_invalid_checkpoint_is_discarded_when_artifacts_missing(tmp_path)
         "completed_steps": ["skript", "stimme"],
         "artifacts": {},
     }
-    Path(bot.checkpoint_path).write_text(json.dumps(checkpoint_payload), encoding="utf-8")
+    Path(bot.checkpoint_path).write_text(
+        json.dumps(checkpoint_payload), encoding="utf-8"
+    )
 
     completed = bot.resume_completed_steps()
 
