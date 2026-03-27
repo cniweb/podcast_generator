@@ -8,7 +8,9 @@ It captures build/test commands, style rules, and repo-specific safety constrain
 - Primary docs: `README.md`.
 - Execution scripts: `run.sh`, `setup.sh`, `ci.sh`.
 - CI behavior: `.github/workflows/ci.yml`.
+- OpenCode GitHub Action: `.github/workflows/opencode.yml` (triggered via `/oc` or `/opencode` comments on PRs/issues).
 - Core code: `podcast_generator.py`, helper utilities in `utils.py`, tests in `tests/`.
+- Test bootstrap: `tests/conftest.py` (adds project root to `sys.path`).
 
 ## Workspace And Platform Notes
 
@@ -48,6 +50,7 @@ Optional CI with setup checks:
 
 Direct lint commands:
 - `python -m ruff check podcast_generator.py`
+- `python -m ruff check utils.py`
 - `python -m ruff check --fix podcast_generator.py`
 
 Syntax-only check:
@@ -89,6 +92,7 @@ Dependency import sanity snippet:
   - `GOOGLE_APPLICATION_CREDENTIALS`
   - `PODCAST_NAME`
   - `PODCAST_SLOGAN`
+  - `SCRIPT_DEFAULT_MODEL`
   - `PODCAST_TEMP_DIR`
   - `PODCAST_OUTPUT_DIR`
   - `PODCAST_ASSETS_DIR`
@@ -163,6 +167,64 @@ I/O and paths:
 - No Cursor rules were found (`.cursor/rules/` and `.cursorrules` absent).
 - No Copilot instruction file was found (`.github/copilot-instructions.md` absent).
 - If these files are added later, treat them as additional mandatory instructions.
+
+## MCP Tool Guidelines
+
+The following MCP tools are available and should be used proactively where they add value.
+
+### Context7 — Library Documentation
+
+Use Context7 (`context7_resolve-library-id` + `context7_query-docs`) to retrieve
+up-to-date API documentation before touching library-specific code.
+Do not guess API signatures from memory.
+
+Relevant libraries in this project:
+
+| Library | When to query |
+|---------|---------------|
+| `google-genai` | Before changing `GenerateContentConfig`, TTS/speech config, model discovery, or streaming calls |
+| `google-cloud-texttospeech` | Before modifying SSML, `VoiceSelectionParams`, or `AudioConfig` |
+| `pytrends` | Before changing trend-search methods (`today_searches`, `realtime_trending_searches`, `related_queries`) |
+| `pydub` | Before modifying `AudioSegment` operations (export, crossfade, from_raw) |
+| `pydantic` | Before changing `BaseModel`/`Field` usage in `_generate_episode_metadata` |
+
+Example workflow:
+
+```text
+1. context7_resolve-library-id(libraryName="google-genai", query="TTS SpeechConfig voice")
+2. context7_query-docs(libraryId=<result>, query="SpeechConfig PrebuiltVoiceConfig generate audio")
+```
+
+### Firecrawl — Web Scraping and Research
+
+Use Firecrawl (`firecrawl_search`, `firecrawl_scrape`) when research or content
+verification tasks arise. Do not use it for tasks solvable locally.
+
+Concrete use cases in this project:
+
+**1. Themenrecherche vor Skript-Generierung**
+When implementing or improving the script-generation step, use `firecrawl_search`
+to gather factual context about the topic before building Gemini prompts.
+This reduces hallucination risk and makes source URLs verifiable.
+
+```python
+# Conceptual: gather real facts before calling Gemini
+results = firecrawl_search(query=f"{topic} Fakten aktuell", limit=3)
+```
+
+**2. Quellenverifizierung**
+The generator requests source URLs in the script prompt (`QUELLEN: url1; url2`).
+Use `firecrawl_scrape` to verify that referenced URLs exist and are reachable
+before treating them as valid sources in metadata.
+
+**3. Trends-Fallback-Recherche**
+When `pytrends` returns 429 or no results, use `firecrawl_search` with
+`site:trends.google.com` or news sources as an additional fallback before
+defaulting to the static topic `"Künstliche Intelligenz"`.
+
+**4. Dependency/API-Änderungen prüfen**
+When investigating whether a third-party API (Freesound, Google Trends) changed
+its response format, use `firecrawl_scrape` on the official API docs page.
 
 ## Agent Operating Guidelines
 

@@ -2,6 +2,7 @@ google-genai
 google-cloud-texttospeech
 pytrends
 pydub
+pydantic
 requests
 audioop-lts
 python-dotenv
