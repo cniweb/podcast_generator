@@ -27,7 +27,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Self-hosted Renovate
         uses: renovatebot/github-action@v46.1.6
@@ -36,6 +36,8 @@ jobs:
           LOG_LEVEL: info
           # Trockenlauf via workflow_dispatch Input
           RENOVATE_DRY_RUN: ${{ github.event.inputs.dry_run == 'true' && 'full' || '' }}
+          # Ziel-Repository explizit angeben (erforderlich fuer self-hosted Action)
+          RENOVATE_REPOSITORIES: ${{ github.repository }}
         with:
           # RENOVATE_TOKEN muss als Repository-Secret hinterlegt sein.
           # Benoetigt einen klassischen Personal Access Token (PAT) mit:
