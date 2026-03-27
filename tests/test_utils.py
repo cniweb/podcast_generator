@@ -1,5 +1,3 @@
-import pytest
-
 from utils import _chunk_text, _spell_out_abbreviations, _strip_formatting
 
 
