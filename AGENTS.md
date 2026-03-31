@@ -49,9 +49,8 @@ Optional CI with setup checks:
 - `./ci.sh --setup`
 
 Direct lint commands:
-- `python -m ruff check podcast_generator.py`
-- `python -m ruff check utils.py`
-- `python -m ruff check --fix podcast_generator.py`
+- `python -m ruff check podcast_generator.py utils.py tests/`
+- `python -m ruff check --fix podcast_generator.py utils.py tests/`
 
 Syntax-only check:
 - `python -m compileall podcast_generator.py`
@@ -74,7 +73,7 @@ Verbose failure output when debugging:
 - `python -m pytest -vv tests/test_utils.py -k "spell_out"`
 
 Markdown lint (used in `ci.sh`):
-- `python -m pymarkdown scan .`
+- `python -m pymarkdown -c .pymarkdown.toml scan .`
 
 Dependency import sanity snippet:
 - `python - <<'PY'`
@@ -165,8 +164,8 @@ I/O and paths:
 ## Cursor/Copilot Rules
 
 - No Cursor rules were found (`.cursor/rules/` and `.cursorrules` absent).
-- No Copilot instruction file was found (`.github/copilot-instructions.md` absent).
-- If these files are added later, treat them as additional mandatory instructions.
+- Copilot instructions: `.github/copilot-instructions.md` (high-level architecture and conventions).
+- If Cursor rules are added later, treat them as additional mandatory instructions.
 
 ## MCP Tool Guidelines
 
