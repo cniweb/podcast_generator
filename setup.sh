@@ -73,6 +73,15 @@ if ! command -v ffmpeg &> /dev/null; then
              echo -e "${RED}Konnte Paketmanager nicht bestimmen. Bitte installiere FFmpeg manuell.${NC}"
              exit 1
         fi
+    elif [[ "$OS" == MINGW* ]] || [[ "$OS" == CYGWIN* ]] || [[ "$OS" == MSYS* ]]; then
+        # Windows (Git Bash / MSYS2)
+        if command -v winget &> /dev/null; then
+            echo "Nutze winget..."
+            winget install --id Gyan.FFmpeg -e --source winget
+        else
+            echo -e "${RED}winget nicht gefunden. Bitte installiere FFmpeg manuell von https://ffmpeg.org/download.html${NC}"
+            exit 1
+        fi
     else
         echo -e "${RED}Unbekanntes Betriebssystem. Bitte installiere FFmpeg manuell.${NC}"
         exit 1
@@ -83,6 +92,8 @@ fi
 
 # 3. Python Abhängigkeiten installieren
 if [ -f "requirements.txt" ]; then
+    echo -e "${YELLOW}Aktualisiere pip...${NC}"
+    python.exe -m pip install --upgrade pip
     echo -e "${YELLOW}Installiere Python Abhängigkeiten...${NC}"
     pip3 install -r requirements.txt
     if [ $? -eq 0 ]; then
