@@ -483,7 +483,7 @@ def _run_step(
     defer_output: bool = False,
 ):
     with _with_spinner(
-        f"{step_label} läuft", start_after=spinner_after, defer_stdout=defer_output
+        f"{step_label} läuft ", start_after=spinner_after, defer_stdout=defer_output
     ):
         result = action()
     log_info(f"✅ {step_label} erfolgreich abgeschlossen.")
@@ -637,6 +637,7 @@ class PodcastGenerator:
         """Kapselt den End-to-End-Podcast-Flow für ein bestimmtes Thema."""
         self.topic = topic
         self.topic_slug = _slugify_filename(topic.replace(" ", "_"))
+        self.topic_trend: str | None = None
         self.script_content = ""
         self.audio_voice_path = ""
         self.music_path = ""
@@ -976,8 +977,8 @@ class PodcastGenerator:
                 df = related[self.topic]["top"]
                 if not df.empty:
                     top_query = df.iloc[0]["query"]
-                    print(f"   -> Trend gefunden: '{top_query}'")
-                    self.topic = top_query
+                    print(f"   -> Trend gefunden: '{top_query}' (wird als Kontext genutzt, Thema bleibt '{self.topic}')")
+                    self.topic_trend = top_query
             else:
                 print("   -> Keine spezifischen Trends, nutze Ursprungsthema.")
         except Exception as e:
@@ -997,7 +998,7 @@ class PodcastGenerator:
         # Prompt mit extremer Fokus auf Wortanzahl-Limits
         system_instruction = f"Du bist Redakteur und Podcast-Host des preisgekrönten Podcasts '{PODCAST_NAME}'. Slogan: '{SLOGAN}'."
 
-        prompt = f"""Schreibe ein Podcast-Skript zum Thema '{self.topic}'.
+        prompt = f"""Schreibe ein Podcast-Skript zum Thema '{self.topic}'.{chr(10) + f"Aktueller Trend-Kontext: '{self.topic_trend}' (verwende ihn als Bezugspunkt, das Hauptthema bleibt '{self.topic}')." if self.topic_trend else ""}
 
 ABSOLUT STRIKTE REGELN (NICHT BREAKBAR):
 1. WORTANZAHL: {SCRIPT_MIN_WORDS}-{SCRIPT_MAX_WORDS} WÖRTER! Zähle sorgfältig! KEINE AUSNAHME!
@@ -1048,7 +1049,6 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
             raw_text = ""
             for attempt in range(1, attempts + 1):
                 if attempt == 1:
-                    print("   -> Generiere Skript (Streaming): ", end="", flush=True)
                     resp_stream = _gemini_generate_content_stream_with_retry(
                         model=model_name, contents=prompt, config=cfg
                     )
@@ -1056,8 +1056,6 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
                     for chunk in resp_stream:
                         if chunk.text:
                             raw_text_stream += chunk.text
-                            print(chunk.text, end="", flush=True)
-                    print()
 
                     class DummyResponse:
                         pass
@@ -1390,11 +1388,20 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
             )
 
         if "L16" in mime or "pcm" in mime:
+            # Parse sample rate from MIME type (e.g. "audio/L16;codec=pcm;rate=24000")
+            frame_rate = 24000
+            for part_param in mime.split(";"):
+                part_param = part_param.strip()
+                if part_param.startswith("rate="):
+                    try:
+                        frame_rate = int(part_param.split("=", 1)[1])
+                    except ValueError:
+                        pass
             try:
                 return AudioSegment.from_raw(
                     io.BytesIO(data),
                     sample_width=2,
-                    frame_rate=24000,
+                    frame_rate=frame_rate,
                     channels=1,
                 )
             except Exception as e:
@@ -1428,6 +1435,11 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
         )
 
         cfg = types.GenerateContentConfig(
+            system_instruction=(
+                "You are a text-to-speech engine. "
+                "Read the provided text aloud verbatim, exactly as written. "
+                "Do not add, omit, or alter any content."
+            ),
             temperature=0.3,
             response_modalities=["audio"],
             speech_config=types.SpeechConfig(
