@@ -99,11 +99,15 @@ mkdir -p "$PODCAST_TEMP_DIR" "$PODCAST_OUTPUT_DIR"
 if [ -n "$FORCE_RESTART_FLAG" ]; then
     echo -e "${YELLOW}Leere $PODCAST_TEMP_DIR fuer kompletten Neustart...${NC}"
     find "$PODCAST_TEMP_DIR" -mindepth 1 -delete
+    echo -e "${YELLOW}Leere $PODCAST_OUTPUT_DIR fuer kompletten Neustart...${NC}"
+    find "$PODCAST_OUTPUT_DIR" -mindepth 1 -delete
 elif [ -n "$RESUME_FLAG" ]; then
     echo -e "${YELLOW}Behalte $PODCAST_TEMP_DIR fuer Resume bei...${NC}"
 else
     echo -e "${YELLOW}Leere $PODCAST_TEMP_DIR...${NC}"
     find "$PODCAST_TEMP_DIR" -mindepth 1 -delete
+    echo -e "${YELLOW}Leere $PODCAST_OUTPUT_DIR...${NC}"
+    find "$PODCAST_OUTPUT_DIR" -mindepth 1 -delete
 fi
 
 # 4. VIRTUAL ENVIRONMENT (.venv) SETUP
