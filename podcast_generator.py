@@ -1435,11 +1435,6 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
         )
 
         cfg = types.GenerateContentConfig(
-            system_instruction=(
-                "You are a text-to-speech engine. "
-                "Read the provided text aloud verbatim, exactly as written. "
-                "Do not add, omit, or alter any content."
-            ),
             temperature=0.3,
             response_modalities=["audio"],
             speech_config=types.SpeechConfig(
@@ -1497,6 +1492,10 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
         audio_bytes = io.BytesIO(response.audio_content)
         return AudioSegment.from_file(audio_bytes, format="mp3")
 
+    def _is_transient_server_error(self, exc: Exception) -> bool:
+        msg = str(exc).lower()
+        return "500" in msg or "server error" in msg or "internal" in msg
+
     def _process_chunk(self, idx, chunk, model_tts, voice_name, max_attempts=3):
         for attempt in range(1, max_attempts + 1):
             try:
@@ -1516,6 +1515,13 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
                         "   ⚠️  Rate-Limit erschöpft, wechsle zu Google Cloud TTS Fallback..."
                     )
                     raise e
+                if self._is_transient_server_error(e) and attempt < max_attempts:
+                    delay = 2**attempt
+                    print(
+                        f"   ⚠️  Server-Fehler bei Chunk {idx} (Versuch {attempt}/{max_attempts}), warte {delay}s..."
+                    )
+                    time.sleep(delay)
+                    continue
                 print(f"   ❌ Fehler bei Chunk {idx}: {e}")
                 raise
         raise RuntimeError(f"Chunk {idx}: Unbekannter Fehler bei Gemini TTS")
