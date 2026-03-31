@@ -152,20 +152,63 @@ def _chunk_text(text: str, max_chars: int = 1500) -> List[str]:
     current: List[str] = []
     current_len = 0
 
+    # Sentence-boundary markers for splitting long paragraphs
+    _SENT_END = re.compile(r'(?<=[.!?])\s+')
+
     for para in paragraphs:
         para_len = len(para)
-        # Wenn ein einzelner Paragraph zu lang ist, teilen wir ihn in Stücke
+        # Wenn ein einzelner Paragraph zu lang ist, teilen wir ihn in Sätze
         if para_len > max_chars:
             if current:
                 chunks.append("\n\n".join(current))
                 current = []
                 current_len = 0
 
-            start = 0
-            while start < para_len:
-                end = start + max_chars
-                chunks.append(para[start:end])
-                start = end
+            # Split at sentence boundaries first
+            sentences = _SENT_END.split(para)
+            bucket: list[str] = []
+            bucket_len = 0
+            for sent in sentences:
+                sent_len = len(sent)
+                if bucket_len + sent_len + 1 <= max_chars:
+                    bucket.append(sent)
+                    bucket_len += sent_len + 1
+                else:
+                    if bucket:
+                        chunks.append(" ".join(bucket))
+                    # If a single sentence exceeds max_chars, hard-split at word boundary
+                    if sent_len > max_chars:
+                        words = sent.split() or [sent]
+                        word_bucket: list[str] = []
+                        word_len = 0
+                        for word in words:
+                            wl = len(word)
+                            if word_len + wl + 1 <= max_chars:
+                                word_bucket.append(word)
+                                word_len += wl + 1
+                            else:
+                                if word_bucket:
+                                    chunks.append(" ".join(word_bucket))
+                                # If a single word exceeds max_chars, hard-split by chars
+                                if wl > max_chars:
+                                    for char_start in range(0, wl, max_chars):
+                                        chunks.append(word[char_start:char_start + max_chars])
+                                    word_bucket = []
+                                    word_len = 0
+                                else:
+                                    word_bucket = [word]
+                                    word_len = wl
+                        if word_bucket:
+                            bucket = word_bucket
+                            bucket_len = word_len
+                        else:
+                            bucket = []
+                            bucket_len = 0
+                    else:
+                        bucket = [sent]
+                        bucket_len = sent_len
+            if bucket:
+                chunks.append(" ".join(bucket))
             continue
 
         if current_len + para_len + 2 <= max_chars:
