@@ -140,6 +140,12 @@ Formatting:
 - Use readable line lengths and wrap long expressions cleanly.
 - Prefer f-strings for interpolation.
 
+Markdown:
+
+- Follow pymarkdownlnt expectations (run `python -m pymarkdown -c .pymarkdown.toml scan .`).
+- Important: Lists must be surrounded by blank lines to avoid MD032 errors.
+- Always run the markdown linter locally before pushing documentation changes.
+
 Types:
 
 - Add type hints for public/non-trivial functions.
