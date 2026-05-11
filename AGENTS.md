@@ -25,16 +25,19 @@ It captures build/test commands, style rules, and repo-specific safety constrain
 ## Build, Lint, And Test Commands
 
 Setup and dependency install:
+
 - `./setup.sh`
   - Validates `.env` keys.
   - Checks `ffmpeg` availability.
   - Installs `requirements.txt`.
 
 End-to-end podcast run:
+
 - `./run.sh "<Thema>"`
 - `./run.sh ""` (empty topic -> trend-based topic selection)
 
 Project CI checks:
+
 - `./ci.sh`
   - Creates/uses `.venv`.
   - Installs dependencies + `ruff==0.6.8`.
@@ -46,36 +49,46 @@ Project CI checks:
   - When reporting back after a push, include whether the GitHub Actions build passed, failed, or is still running.
 
 Optional CI with setup checks:
+
 - `./ci.sh --setup`
 
 Direct lint commands:
+
 - `python -m ruff check podcast_generator.py utils.py tests/`
 - `python -m ruff check --fix podcast_generator.py utils.py tests/`
 
 Syntax-only check:
+
 - `python -m compileall podcast_generator.py`
 
 Run all tests:
+
 - `python -m pytest -q`
 
 Single test file (important):
+
 - `python -m pytest tests/test_utils.py`
 - `python -m pytest tests/test_script_constraints.py`
 
 Single test by expression (important):
+
 - `python -m pytest tests/test_utils.py -k "chunk_text"`
 
 Single test by node id (important):
+
 - `python -m pytest tests/test_utils.py::test_chunk_text_splits_long_paragraph`
 - `python -m pytest tests/test_script_constraints.py::test_validate_script_constraints_success_case`
 
 Verbose failure output when debugging:
+
 - `python -m pytest -vv tests/test_utils.py -k "spell_out"`
 
 Markdown lint (used in `ci.sh`):
+
 - `python -m pymarkdown -c .pymarkdown.toml scan .`
 
 Dependency import sanity snippet:
+
 - `python - <<'PY'`
 - `import importlib`
 - `deps = ['google.genai', 'pytrends', 'pydub', 'requests', 'dotenv']`
@@ -109,38 +122,45 @@ Dependency import sanity snippet:
 ## Code Style Guidelines
 
 General:
+
 - Keep diffs small, focused, and minimal risk.
 - Preserve established workflow and filenames.
 - Prefer explicit logic over clever compact rewrites.
 
 Imports:
+
 - Order: standard library, third-party, local imports.
 - Avoid wildcard imports.
 - Keep local helper imports explicit (e.g., from `utils` import specific functions).
 
 Formatting:
+
 - Follow ruff expectations (`ruff check`).
 - 4-space indentation; no tabs.
 - Use readable line lengths and wrap long expressions cleanly.
 - Prefer f-strings for interpolation.
 
 Types:
+
 - Add type hints for public/non-trivial functions.
 - Prefer modern built-in generics (`list[str]`, `dict[str, str]`).
 - Use explicit unions where needed (`str | None`).
 
 Naming:
+
 - `snake_case` for functions, methods, variables.
 - `_leading_underscore` for internal helpers.
 - `ALL_CAPS` for module-level constants.
 - `CapWords` for classes (e.g., `PodcastGenerator`).
 
 Error handling:
+
 - Fail fast for required prerequisites (missing env vars, missing tools).
 - For recoverable external failures, log warning and use fallback path.
 - Error messages should be actionable and specific.
 
 I/O and paths:
+
 - Use `os.makedirs(..., exist_ok=True)` for required directories.
 - Keep outputs under configured `PODCAST_*` directories.
 - Clean temp artifacts only; do not wipe output history.
