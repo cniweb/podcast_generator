@@ -52,6 +52,11 @@ if command -v python3.12 >/dev/null 2>&1; then
     PYTHON_BIN=python3.12
 fi
 
+if ! "$PYTHON_BIN" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 12) else 1)'; then
+    echo -e "${RED}Fehler: Python 3.12 oder neuer erforderlich.${NC}"
+    exit 1
+fi
+
 # 2. DATEI CHECK
 if [ ! -f "$SCRIPT_FILE" ]; then
     echo -e "${RED}Fehler: $SCRIPT_FILE nicht gefunden.${NC}"
@@ -116,6 +121,8 @@ if [ ! -d ".venv" ]; then
     $PYTHON_BIN -m venv .venv
 fi
 
+PYTHON_BIN=".venv/bin/python"
+
 # Aktivieren des Environments
 source .venv/bin/activate
 echo -e "${GREEN}✓ Virtual Environment aktiviert.${NC}"
@@ -149,7 +156,7 @@ printf "\n%b🚀 Starte %s Generator mit Thema:%b\n'%s'\n\n" "$GREEN" "$PODCAST_
 echo "------------------------------------------------"
 
 # Wir pipen das Thema direkt in das Python-Skript, da dieses 'input()' verwendet.
-python3 "$SCRIPT_FILE" $RESUME_FLAG $FORCE_RESTART_FLAG "$TOPIC"
+"$PYTHON_BIN" "$SCRIPT_FILE" $RESUME_FLAG $FORCE_RESTART_FLAG "$TOPIC"
 
 # Deaktivieren (optional, da Skript hier endet)
 if command -v deactivate >/dev/null 2>&1; then

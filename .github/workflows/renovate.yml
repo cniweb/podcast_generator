@@ -30,7 +30,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Self-hosted Renovate
-        uses: renovatebot/github-action@v46.1.6
+        uses: renovatebot/github-action@v46.2.1
         env:
           # LOG_LEVEL steuert die Ausgabe: debug | info | warn | error
           LOG_LEVEL: info
