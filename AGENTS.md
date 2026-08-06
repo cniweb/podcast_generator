@@ -253,6 +253,9 @@ its response format, use `firecrawl_scrape` on the official API docs page.
 
 ## Agent Operating Guidelines
 
+Dependency-Automatisierung: Renovate erstellt geplante Update-PRs; Dependabot
+Security Alerts bleibt für Sicherheitsmeldungen zuständig.
+
 - Read relevant code before making behavior changes.
 - Prefer targeted edits over broad refactors.
 - Do not commit secrets, generated credentials, or local environment files.

@@ -1,6 +1,7 @@
 import argparse
 import logging
 import os
+import platform
 import builtins
 import requests
 import json
@@ -34,6 +35,9 @@ from utils import (
 )
 
 load_dotenv()
+PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__)) if "__file__" in globals() else os.getcwd()
+with open(os.path.join(PROJECT_ROOT, "VERSION"), encoding="utf-8") as version_file:
+    VERSION = version_file.read().strip()
 
 
 _PRINT_LOCK = threading.Lock()
@@ -580,6 +584,7 @@ def _format_subprocess_error(
 
 def _parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Podcast-Generator starten")
+    parser.add_argument("--version", action="version", version=VERSION)
     parser.add_argument("topic", nargs="?", help="Podcast-Thema; leer = Trend-Fallback")
     parser.add_argument(
         "--resume",
@@ -666,6 +671,11 @@ class PodcastGenerator:
         manifest_path = os.path.join(OUTPUT_DIR, f"{self.topic_slug}_run.json")
         payload = {
             "topic": self.topic,
+            "generator_version": VERSION,
+            "runtime": {
+                "python": platform.python_version(),
+                "platform": platform.platform(),
+            },
             "topic_slug": self.topic_slug,
             "podcast_name": PODCAST_NAME,
             "status": status,

@@ -129,6 +129,11 @@ Ausgaben:
 - `audioop` fehlt: `run.sh` installiert `audioop-lts` über requirements.
   Sicherstellen, dass Python 3.12+ genutzt wird.
 
+## Dependency-Automatisierung
+
+Renovate erstellt geplante Dependency-Update-PRs. GitHub Dependabot Security
+Alerts bleibt für Sicherheitsmeldungen zuständig.
+
 ## Entwickler-Onboarding (Contributor)
 
 ### Repository vorbereiten
