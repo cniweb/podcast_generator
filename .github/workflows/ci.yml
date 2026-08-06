@@ -71,6 +71,42 @@ jobs:
       - name: Byte-compile python
         run: python -m compileall podcast_generator.py utils.py
 
+      - name: Audit Python dependencies
+        run: |
+          set +e
+          pip-audit --format=json --output=pip-audit.json
+          audit_exit=$?
+          set -e
+          AUDIT_EXIT=$audit_exit python - <<'PY'
+          import json
+          import os
+          import sys
+
+          with open("pip-audit.json", encoding="utf-8") as handle:
+              report = json.load(handle)
+
+          high = []
+          other = []
+          for dependency in report.get("dependencies", []):
+              for vulnerability in dependency.get("vulns", []):
+                  severity = str(vulnerability.get("severity", "")).upper()
+                  item = f"{dependency.get('name')} {dependency.get('version')}: {vulnerability.get('id')}"
+                  if severity in {"HIGH", "CRITICAL"}:
+                      high.append(item)
+                  else:
+                      other.append(item)
+
+          for item in other:
+              print(f"::warning title=pip-audit::{item}")
+          if high:
+              for item in high:
+                  print(f"::error title=pip-audit::{item}")
+              sys.exit(1)
+          audit_exit = int(os.environ["AUDIT_EXIT"])
+          if audit_exit not in (0, 1):
+              sys.exit(audit_exit)
+          PY
+
       - name: Run pytest with coverage
         run: >-
           pytest -q
