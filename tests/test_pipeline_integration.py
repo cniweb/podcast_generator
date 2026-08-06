@@ -302,6 +302,43 @@ def test_write_run_manifest_records_failures(tmp_path):
     assert manifest["artifacts"]["checkpoint"] == bot.checkpoint_path
 
 
+def test_run_manifest_has_common_status_and_artifact_fields(tmp_path):
+    mod = _load_partial_module()
+    podcast_generator_cls = mod["PodcastGenerator"]
+
+    mod["OUTPUT_DIR"] = str(tmp_path / "out")
+    mod["TEMP_DIR"] = str(tmp_path / "temp")
+    mod["ASSETS_DIR"] = str(tmp_path / "assets")
+    Path(mod["OUTPUT_DIR"]).mkdir(parents=True, exist_ok=True)
+    Path(mod["TEMP_DIR"]).mkdir(parents=True, exist_ok=True)
+    Path(mod["ASSETS_DIR"]).mkdir(parents=True, exist_ok=True)
+
+    bot = podcast_generator_cls("Common Fields")
+    bot.write_run_manifest(
+        started_at=10.0,
+        finished_at=15.25,
+        generate_video=False,
+        resume_enabled=False,
+        force_restart=False,
+        status="failed",
+        error="qa failed",
+    )
+
+    manifest = json.loads(Path(bot.run_manifest_path).read_text(encoding="utf-8"))
+    assert {
+        "topic",
+        "status",
+        "started_at",
+        "finished_at",
+        "duration_seconds",
+        "models",
+        "artifacts",
+        "error",
+    } <= manifest.keys()
+    assert manifest["duration_seconds"] == 5.25
+    assert manifest["error"] == "qa failed"
+
+
 def test_validate_outputs_accepts_present_audio_and_metadata(tmp_path, monkeypatch):
     mod = _load_partial_module()
     podcast_generator_cls = mod["PodcastGenerator"]

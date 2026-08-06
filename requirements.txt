@@ -9,3 +9,4 @@ python-dotenv>=1.2.1
 pytest>=9.0.3
 pytest-cov>=6.2.1
 pymarkdownlnt>=0.9.35
+pip-audit>=2.9.0
