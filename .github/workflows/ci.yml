@@ -17,6 +17,7 @@ jobs:
   lint-and-test:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         python-version: ['3.12', '3.13']
     steps:
@@ -34,6 +35,10 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install ruff==0.6.8 pytest-cov
+
+      - name: Install Python 3.13 audio compatibility dependency
+        if: matrix.python-version == '3.13'
+        run: pip install 'audioop-lts>=0.2.2'
 
       - name: Check FFmpeg tools
         run: |
