@@ -5,11 +5,17 @@ set -euo pipefail
 python_bin="python3"
 ruff_version="0.6.8"
 
+if ! $python_bin -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 12) else 1)'; then
+    echo "Python 3.12 oder neuer erforderlich."
+    exit 1
+fi
+
 # Virtuelle Umgebung sicherstellen
 if [[ ! -d .venv ]]; then
     $python_bin -m venv .venv
 fi
-source .venv/Scripts/activate
+source .venv/bin/activate
+python_bin=".venv/bin/python"
 
 # Optional: Setup erneut nutzen, falls Umgebungs- und FFmpeg-Checks gewünscht sind (benötigt .env)
 if [[ "${1:-}" == "--setup" ]]; then
@@ -45,7 +51,7 @@ PY
 $python_bin -m compileall podcast_generator.py utils.py
 
 # Tests
-$python_bin -m pytest -q
+$python_bin -m pytest -q --cov=podcast_generator --cov=utils --cov-report=term-missing --cov-fail-under=40 --junitxml=test-results.xml
 
 # Markdown lint
 $python_bin -m pymarkdown -c .pymarkdown.toml scan .

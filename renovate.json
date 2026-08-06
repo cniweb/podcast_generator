@@ -4,9 +4,9 @@
     "config:recommended"
   ],
   "labels": ["dependencies"],
-  "prConcurrentLimit": 3,
+  "prConcurrentLimit": 5,
   "prHourlyLimit": 2,
-  "schedule": ["before 7am on Monday"],
+  "schedule": ["before 7am on monday"],
   "pip_requirements": {
     "enabled": true,
     "fileMatch": ["(^|/)requirements\\.txt$"]

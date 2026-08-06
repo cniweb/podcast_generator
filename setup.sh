@@ -47,6 +47,12 @@ else
     echo -e "${GREEN}✓ Python 3 gefunden.${NC}"
 fi
 
+python_version=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
+if ! python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 12) else 1)'; then
+    echo -e "${RED}Fehler: Python 3.12 oder neuer erforderlich (gefunden: ${python_version}).${NC}"
+    exit 1
+fi
+
 # 2. FFmpeg Prüfung und Installation (MacOS/Linux)
 if ! command -v ffmpeg &> /dev/null; then
     echo -e "${YELLOW}FFmpeg nicht gefunden. Versuche Installation...${NC}"
@@ -92,10 +98,12 @@ fi
 
 # 3. Python Abhängigkeiten installieren
 if [ -f "requirements.txt" ]; then
+    python_bin="${VIRTUAL_ENV:+$VIRTUAL_ENV/bin/python}"
+    python_bin="${python_bin:-python3}"
     echo -e "${YELLOW}Aktualisiere pip...${NC}"
-    python.exe -m pip install --upgrade pip
+    "$python_bin" -m pip install --upgrade pip
     echo -e "${YELLOW}Installiere Python Abhängigkeiten...${NC}"
-    pip3 install -r requirements.txt
+    "$python_bin" -m pip install -r requirements.txt
     if [ $? -eq 0 ]; then
         echo -e "${GREEN}✓ Abhängigkeiten installiert.${NC}"
     else
