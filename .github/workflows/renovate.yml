@@ -27,10 +27,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
 
       - name: Self-hosted Renovate
-        uses: renovatebot/github-action@v46.2.1
+        uses: renovatebot/github-action@316d7cd859606d6039a2182b7d69199e9b036835
         env:
           # LOG_LEVEL steuert die Ausgabe: debug | info | warn | error
           LOG_LEVEL: info

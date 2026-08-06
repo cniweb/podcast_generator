@@ -60,6 +60,11 @@ def test_parse_cli_args_topic_provided():
     assert args.force_restart is False
 
 
+def test_cli_version_is_defined():
+    mod = _load_partial_module()
+    assert mod["VERSION"] == "0.1.0"
+
+
 def test_parse_cli_args_no_topic():
     mod = _load_partial_module()
     parse_cli_args = mod["_parse_cli_args"]

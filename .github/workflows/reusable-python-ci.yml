@@ -1,0 +1,77 @@
+name: Reusable Python CI
+
+on:
+  workflow_call:
+    inputs:
+      project-name:
+        required: true
+        type: string
+      compile-targets:
+        required: true
+        type: string
+      coverage-targets:
+        required: true
+        type: string
+      install-ffmpeg:
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.12', '3.13']
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt ruff==0.6.8
+      - name: Install FFmpeg
+        if: inputs.install-ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Check FFmpeg
+        if: inputs.install-ffmpeg
+        run: ffmpeg -version && ffprobe -version
+      - name: Ruff
+        run: ruff check ${{ inputs.compile-targets }} tests/
+      - name: Compile
+        run: python -m compileall ${{ inputs.compile-targets }}
+      - name: Audit dependencies
+        run: |
+          set +e
+          pip-audit --format=json --output=pip-audit.json
+          audit_exit=$?
+          set -e
+          if [[ $audit_exit -gt 1 ]]; then exit $audit_exit; fi
+          python .github/scripts/parse_pip_audit.py pip-audit.json
+      - name: Test with coverage
+        run: >-
+          pytest -q
+          ${{ inputs.coverage-targets }}
+          --cov-report=term-missing
+          --cov-report=xml:coverage.xml
+          --cov-fail-under=40
+          --junitxml=test-results.xml
+      - name: Markdown lint
+        run: python -m pymarkdown -c .pymarkdown.toml scan .
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ inputs.project-name }}-reports-python-${{ matrix.python-version }}
+          retention-days: 14
+          path: |
+            test-results.xml
+            coverage.xml
+            pip-audit.json
