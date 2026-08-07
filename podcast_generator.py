@@ -23,6 +23,8 @@ from google.genai import types
 from google.cloud import texttospeech
 from pydub import AudioSegment
 from dotenv import load_dotenv
+from config import load_config
+from qa import validate_manifest
 from typing import Callable, List
 
 # ==============================================================================
@@ -39,6 +41,7 @@ load_dotenv()
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__)) if "__file__" in globals() else os.getcwd()
 with open(os.path.join(PROJECT_ROOT, "VERSION"), encoding="utf-8") as version_file:
     VERSION = version_file.read().strip()
+CONFIG = load_config(os.environ, PROJECT_ROOT)
 
 
 _PRINT_LOCK = threading.Lock()
@@ -155,17 +158,17 @@ def _require_env(var_name):
 
 
 # Secrets aus der .env Datei
-GEMINI_API_KEY = _require_env("GEMINI_API_KEY")
-GOOGLE_APPLICATION_CREDENTIALS = _require_env("GOOGLE_APPLICATION_CREDENTIALS")
-FREESOUND_API_KEY = _require_env("FREESOUND_API_KEY")
+GEMINI_API_KEY = CONFIG.gemini_api_key
+GOOGLE_APPLICATION_CREDENTIALS = str(CONFIG.google_application_credentials)
+FREESOUND_API_KEY = CONFIG.freesound_api_key
 
 # Podcast Einstellungen aus .env
-PODCAST_NAME = _require_env("PODCAST_NAME")
-SLOGAN = _require_env("PODCAST_SLOGAN")
-TEMP_DIR = _require_env("PODCAST_TEMP_DIR")
-OUTPUT_DIR = _require_env("PODCAST_OUTPUT_DIR")
-ASSETS_DIR = _require_env("PODCAST_ASSETS_DIR")
-SCRIPT_DEFAULT_MODEL = _require_env("SCRIPT_DEFAULT_MODEL")
+PODCAST_NAME = CONFIG.podcast_name
+SLOGAN = CONFIG.slogan
+TEMP_DIR = str(CONFIG.temp_dir)
+OUTPUT_DIR = str(CONFIG.output_dir)
+ASSETS_DIR = str(CONFIG.assets_dir)
+SCRIPT_DEFAULT_MODEL = CONFIG.script_model
 TTS_DEFAULT_MODEL = os.getenv("TTS_DEFAULT_MODEL", "gemini-2.5-pro-preview-tts").strip()
 TTS_FALLBACK_MODELS = os.getenv(
     "TTS_FALLBACK_MODELS",
@@ -750,6 +753,9 @@ class PodcastGenerator:
             "sources": self.sources,
             "error": error,
         }
+        validation = validate_manifest(payload)
+        if not validation.ok:
+            raise OutputValidationError("Manifest ungültig: " + "; ".join(validation.errors))
         _atomic_write_json(manifest_path, payload)
         self.run_manifest_path = manifest_path
         log_info(f"   -> Run-Manifest gespeichert: {manifest_path}")
