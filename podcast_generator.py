@@ -684,8 +684,9 @@ def pick_available_model(preferences: List[str]) -> str:
 
 
 class PodcastGenerator:
-    def __init__(self, topic):
+    def __init__(self, topic, config=None):
         """Kapselt den End-to-End-Podcast-Flow für ein bestimmtes Thema."""
+        self.config = config or CONFIG
         self.topic = topic
         self.topic_slug = _slugify_filename(topic.replace(" ", "_"))
         self.topic_trend: str | None = None
@@ -1964,7 +1965,7 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"   ⚠️ Fehler bei Trend-Suche: {e}. Nutze Fallback.")
             topic = "Künstliche Intelligenz"
-    bot = PodcastGenerator(topic)
+    bot = PodcastGenerator(topic, config=CONFIG)
     run_error: str | None = None
     try:
         _execute_pipeline(

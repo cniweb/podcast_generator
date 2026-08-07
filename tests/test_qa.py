@@ -1,6 +1,8 @@
 from qa import validate_manifest
+import pytest
 
 
+@pytest.mark.unit
 def test_validate_manifest_accepts_completed_manifest():
     manifest = {
         "schema_version": 1,
@@ -15,6 +17,7 @@ def test_validate_manifest_accepts_completed_manifest():
     assert validate_manifest(manifest).ok
 
 
+@pytest.mark.unit
 def test_validate_manifest_rejects_unknown_status():
     result = validate_manifest({"schema_version": 1, "status": "unknown"})
     assert not result.ok

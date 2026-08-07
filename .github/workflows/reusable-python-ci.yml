@@ -57,7 +57,7 @@ jobs:
           python .github/scripts/parse_pip_audit.py pip-audit.json
       - name: Test with coverage
         run: >-
-          pytest -q
+          pytest -q -m "not network"
           ${{ inputs.coverage-targets }}
           --cov-report=term-missing
           --cov-report=xml:coverage.xml
