@@ -204,6 +204,7 @@ HTTP_TIMEOUT_SECONDS = 20
 HTTP_RETRY_ATTEMPTS = 3
 GEMINI_RETRY_ATTEMPTS = 3
 GEMINI_RETRY_BASE_DELAY = 2
+_RETRY_COUNT = 0
 
 
 def _parse_csv_models(value: str) -> list[str]:
@@ -259,6 +260,8 @@ def _gemini_generate_content_with_retry(*, model: str, contents, config=None):
             if not retryable or attempt == GEMINI_RETRY_ATTEMPTS:
                 break
             delay = _retry_delay(attempt, GEMINI_RETRY_BASE_DELAY)
+            global _RETRY_COUNT
+            _RETRY_COUNT += 1
             log_warning(
                 f"   ⚠️ Gemini-Versuch {attempt}/{GEMINI_RETRY_ATTEMPTS} fuer Modell {model} fehlgeschlagen ({exc}), warte {delay:.1f}s..."
             )
@@ -739,7 +742,7 @@ class PodcastGenerator:
                 "platform": platform.platform(),
             },
             "topic_slug": self.topic_slug,
-            "podcast_name": PODCAST_NAME,
+            "podcast_name": self.config.podcast_name,
             "status": status,
             "started_at": started_at,
             "finished_at": finished_at,
@@ -765,9 +768,17 @@ class PodcastGenerator:
                 ),
             },
             "sources": self.sources,
-            "error": error,
+            "error": (
+                {
+                    "type": type(error).__name__,
+                    "message": str(error),
+                    "retryable": isinstance(error, ExternalServiceError),
+                }
+                if isinstance(error, BaseException)
+                else error
+            ),
             "steps": getattr(self, "step_metrics", {}),
-            "retries": getattr(self, "retry_count", 0),
+            "retries": _RETRY_COUNT,
         }
         validation = validate_manifest(payload)
         if not validation.ok:
@@ -2013,7 +2024,7 @@ if __name__ == "__main__":
             resume_enabled=args.resume,
             force_restart=args.force_restart,
             status="failed",
-            error=run_error,
+            error=exc,
         )
         raise
 
