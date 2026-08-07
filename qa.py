@@ -8,6 +8,10 @@ class QAResult:
     errors: list[str] = field(default_factory=list)
     artifacts: dict[str, str | None] = field(default_factory=dict)
 
+    def raise_if_failed(self):
+        if not self.ok:
+            raise RuntimeError("Output-QA fehlgeschlagen: " + "; ".join(self.errors))
+
 
 def validate_manifest(manifest):
     required = {
