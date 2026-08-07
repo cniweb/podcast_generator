@@ -6,6 +6,7 @@ import builtins
 import requests
 import json
 import subprocess
+import tempfile
 import re
 import io
 import mimetypes
@@ -46,6 +47,23 @@ _SPINNER_LINE_ACTIVE = False
 _SPINNER_DEFER_OUTPUT = False
 _DEFERRED_STDOUT_PRINTS: list[tuple[tuple, dict]] = []
 LOGGER = logging.getLogger("podcast_generator")
+
+
+def _atomic_write_text(path: str, content: str):
+    directory = os.path.dirname(path) or "."
+    fd, temporary_path = tempfile.mkstemp(dir=directory, prefix=".tmp-")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(content)
+        os.replace(temporary_path, path)
+    except Exception:
+        if os.path.exists(temporary_path):
+            os.unlink(temporary_path)
+        raise
+
+
+def _atomic_write_json(path: str, payload):
+    _atomic_write_text(path, json.dumps(payload, ensure_ascii=False, indent=2))
 
 
 def _safe_print(*args, **kwargs):
@@ -732,8 +750,7 @@ class PodcastGenerator:
             "sources": self.sources,
             "error": error,
         }
-        with open(manifest_path, "w", encoding="utf-8") as f:
-            json.dump(payload, f, ensure_ascii=False, indent=2)
+        _atomic_write_json(manifest_path, payload)
         self.run_manifest_path = manifest_path
         log_info(f"   -> Run-Manifest gespeichert: {manifest_path}")
 
@@ -1181,8 +1198,7 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
             self.transcript_path = os.path.join(
                 TEMP_DIR, f"{self.topic_slug}_script.txt"
             )
-            with open(self.transcript_path, "w", encoding="utf-8") as f:
-                f.write(self.script_content)
+            _atomic_write_text(self.transcript_path, self.script_content)
 
             print("   -> Skript generiert.")
         except Exception as e:
@@ -1774,8 +1790,7 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
         }
         # ensure_ascii=False, damit Umlaute in title/description lesbar bleiben
         meta_output_path = os.path.join(OUTPUT_DIR, f"{self.topic_slug}_meta.json")
-        with open(meta_output_path, "w", encoding="utf-8") as f:
-            json.dump(meta, f, ensure_ascii=False, indent=4)
+        _atomic_write_json(meta_output_path, meta)
         self.metadata_path = meta_output_path
         print(f"   -> Transkript gespeichert: {transcription_output_path}")
         print(f"   -> Metadaten gespeichert: {meta_output_path}")

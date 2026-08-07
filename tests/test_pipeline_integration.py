@@ -372,6 +372,30 @@ def test_validate_outputs_accepts_present_audio_and_metadata(tmp_path, monkeypat
     bot.validate_outputs(generate_video=False)
 
 
+def test_manifest_write_leaves_no_temporary_files(tmp_path):
+    mod = _load_partial_module()
+    podcast_generator_cls = mod["PodcastGenerator"]
+    mod["OUTPUT_DIR"] = str(tmp_path / "out")
+    mod["TEMP_DIR"] = str(tmp_path / "temp")
+    mod["ASSETS_DIR"] = str(tmp_path / "assets")
+    Path(mod["OUTPUT_DIR"]).mkdir(parents=True, exist_ok=True)
+    Path(mod["TEMP_DIR"]).mkdir(parents=True, exist_ok=True)
+    Path(mod["ASSETS_DIR"]).mkdir(parents=True, exist_ok=True)
+
+    bot = podcast_generator_cls("Atomic Manifest")
+    bot.write_run_manifest(
+        started_at=1.0,
+        finished_at=2.0,
+        generate_video=False,
+        resume_enabled=False,
+        force_restart=False,
+        status="completed",
+    )
+
+    assert Path(bot.run_manifest_path).exists()
+    assert list(Path(mod["OUTPUT_DIR"]).glob(".tmp-*")) == []
+
+
 def test_validate_outputs_rejects_missing_required_artifacts(tmp_path):
     mod = _load_partial_module()
     podcast_generator_cls = mod["PodcastGenerator"]
