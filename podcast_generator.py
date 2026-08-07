@@ -573,6 +573,8 @@ def _execute_pipeline(
 
     step_plan = _build_step_plan(bot, generate_video)
     total_steps = len(step_plan)
+    if not hasattr(bot, "step_metrics"):
+        bot.step_metrics = {}
     for idx, (step_name, step_action, defer_output) in enumerate(step_plan, start=1):
         step_key = _step_key(step_name)
         step_label = f"Schritt {idx}/{total_steps} ({step_name})"
