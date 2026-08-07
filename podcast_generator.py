@@ -580,11 +580,20 @@ def _execute_pipeline(
             log_info(f"⏭️ {step_label} bereits abgeschlossen. Überspringe.")
             continue
         bot._write_checkpoint(step_key, "running", completed_steps)
+        step_started = time.time()
         try:
             _run_step(step_label, step_action, defer_output=defer_output)
         except Exception as exc:
+            bot.step_metrics[step_key] = {
+                "status": "failed",
+                "duration_seconds": round(time.time() - step_started, 2),
+            }
             bot._write_checkpoint_error(step_key, completed_steps, exc)
             raise
+        bot.step_metrics[step_key] = {
+            "status": "completed",
+            "duration_seconds": round(time.time() - step_started, 2),
+        }
         completed_steps.append(step_key)
         bot._write_checkpoint(step_key, "completed", completed_steps)
 
@@ -697,6 +706,8 @@ class PodcastGenerator:
         self.final_video_path = ""
         self.metadata_path = ""
         self.run_manifest_path = ""
+        self.step_metrics = {}
+        self.retry_count = 0
         self.sources = []
         self.transcript_path = ""
         self.checkpoint_path = os.path.join(
@@ -753,6 +764,8 @@ class PodcastGenerator:
             },
             "sources": self.sources,
             "error": error,
+            "steps": getattr(self, "step_metrics", {}),
+            "retries": getattr(self, "retry_count", 0),
         }
         validation = validate_manifest(payload)
         if not validation.ok:
@@ -763,6 +776,7 @@ class PodcastGenerator:
 
     def validate_outputs(self, generate_video: bool):
         issues: list[str] = []
+        warnings: list[str] = []
 
         if not self.final_audio_path or not os.path.exists(self.final_audio_path):
             issues.append("Finale Audio-Datei fehlt")
@@ -794,8 +808,21 @@ class PodcastGenerator:
             elif _file_size_or_zero(self.final_video_path) == 0:
                 issues.append("Video-Datei ist leer")
 
-        if issues:
-            raise RuntimeError("Output-QA fehlgeschlagen: " + "; ".join(issues))
+        from qa import QAResult
+
+        result = QAResult(
+            ok=not issues,
+            warnings=warnings,
+            errors=issues,
+            artifacts={
+                "audio": self.final_audio_path or None,
+                "video": self.final_video_path or None,
+                "metadata": self.metadata_path or None,
+                "script": self.transcript_path or None,
+            },
+        )
+        result.raise_if_failed()
+        return result
 
         log_info(
             "🔎 Output-QA erfolgreich: Audio, Metadaten und optionale Artefakte sind plausibel."
