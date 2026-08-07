@@ -204,7 +204,6 @@ HTTP_TIMEOUT_SECONDS = 20
 HTTP_RETRY_ATTEMPTS = 3
 GEMINI_RETRY_ATTEMPTS = 3
 GEMINI_RETRY_BASE_DELAY = 2
-_RETRY_COUNT = 0
 
 
 def _parse_csv_models(value: str) -> list[str]:
@@ -260,8 +259,6 @@ def _gemini_generate_content_with_retry(*, model: str, contents, config=None):
             if not retryable or attempt == GEMINI_RETRY_ATTEMPTS:
                 break
             delay = _retry_delay(attempt, GEMINI_RETRY_BASE_DELAY)
-            global _RETRY_COUNT
-            _RETRY_COUNT += 1
             log_warning(
                 f"   ⚠️ Gemini-Versuch {attempt}/{GEMINI_RETRY_ATTEMPTS} fuer Modell {model} fehlgeschlagen ({exc}), warte {delay:.1f}s..."
             )
@@ -645,6 +642,7 @@ def _format_subprocess_error(
 def _parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Podcast-Generator starten")
     parser.add_argument("--version", action="version", version=VERSION)
+    parser.add_argument("--json", action="store_true", help="Ergebnis als JSON ausgeben")
     parser.add_argument("topic", nargs="?", help="Podcast-Thema; leer = Trend-Fallback")
     parser.add_argument(
         "--resume",
@@ -778,7 +776,7 @@ class PodcastGenerator:
                 else error
             ),
             "steps": getattr(self, "step_metrics", {}),
-            "retries": _RETRY_COUNT,
+            "retries": self.retry_count,
         }
         validation = validate_manifest(payload)
         if not validation.ok:
@@ -2037,4 +2035,16 @@ if __name__ == "__main__":
         status="completed",
     )
 
+    if args.json:
+        print(json.dumps({
+            "status": "completed",
+            "manifest": bot.run_manifest_path,
+            "artifacts": {
+                "audio": bot.final_audio_path,
+                "video": bot.final_video_path or None,
+                "script": bot.transcript_path,
+                "metadata": bot.metadata_path,
+            },
+        }, ensure_ascii=False))
+        raise SystemExit(0)
     print("\n✅ ALLES ERLEDIGT!")
