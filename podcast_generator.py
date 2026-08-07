@@ -98,6 +98,31 @@ def log_error(message: str):
 
 _configure_logger()
 
+EXIT_SUCCESS = 0
+EXIT_RUNTIME_ERROR = 1
+EXIT_USAGE_ERROR = 2
+MANIFEST_SCHEMA_VERSION = 1
+
+
+class ConfigurationError(RuntimeError):
+    """Fehler in Pflichtvariablen oder lokaler Konfiguration."""
+
+
+class ExternalServiceError(RuntimeError):
+    """Fehler eines externen Dienstes."""
+
+
+class RateLimitError(ExternalServiceError):
+    """Rate Limit oder temporäres Kontingentproblem."""
+
+
+class GenerationError(ExternalServiceError):
+    """Fehler bei der Audio- oder Videogenerierung."""
+
+
+class OutputValidationError(RuntimeError):
+    """Generierte Artefakte erfüllen die Output-QA nicht."""
+
 
 class ResumeConsistencyError(RuntimeError):
     """Checkpoint verweist auf unvollstaendige oder fehlende Artefakte."""
@@ -670,6 +695,8 @@ class PodcastGenerator:
     ):
         manifest_path = os.path.join(OUTPUT_DIR, f"{self.topic_slug}_run.json")
         payload = {
+            "schema_version": MANIFEST_SCHEMA_VERSION,
+            "generator": "podcast",
             "topic": self.topic,
             "generator_version": VERSION,
             "runtime": {

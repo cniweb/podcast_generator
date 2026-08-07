@@ -23,7 +23,7 @@ if [[ "${1:-}" == "--setup" ]]; then
 fi
 
 $python_bin -m pip install --upgrade pip
-$python_bin -m pip install -r requirements.txt
+$python_bin -m pip install -r requirements-dev.txt
 $python_bin -m pip install ruff=="$ruff_version"
 
 # Linting

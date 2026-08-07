@@ -264,6 +264,8 @@ def test_write_run_manifest_persists_execution_metadata(tmp_path):
     manifest = json.loads(Path(bot.run_manifest_path).read_text(encoding="utf-8"))
     assert manifest["status"] == "completed"
     assert manifest["duration_seconds"] == 12.5
+    assert manifest["schema_version"] == 1
+    assert manifest["generator"] == "podcast"
     assert manifest["options"]["resume_enabled"] is True
     assert manifest["options"]["generate_video"] is False
     assert manifest["artifacts"]["audio"] == bot.final_audio_path
