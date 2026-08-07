@@ -131,3 +131,9 @@ def test_generator_accepts_explicit_config(tmp_path):
     )
     generator = mod["PodcastGenerator"]("Injected Topic", config=config)
     assert generator.config is config
+
+
+def test_parse_cli_args_supports_json_output():
+    mod = _load_partial_module()
+    args = mod["_parse_cli_args"](["--json", "Thema"])
+    assert args.json is True

@@ -24,3 +24,21 @@ def validate_manifest(manifest):
     if manifest.get("status") not in {"running", "completed", "failed"}:
         errors.append("Ungültiger Manifest-Status")
     return QAResult(ok=not errors, errors=errors)
+
+
+def validate_manifest_schema(manifest):
+    result = validate_manifest(manifest)
+    if not isinstance(manifest.get("retries", 0), int):
+        result.errors.append("Manifest-Retries müssen ganzzahlig sein")
+    result.ok = not result.errors
+    return result
+
+
+def safe_result_payload(manifest):
+    return {
+        "status": manifest.get("status"),
+        "manifest": manifest.get("manifest_path"),
+        "artifacts": manifest.get("artifacts", {}),
+        "warnings": manifest.get("warnings", []),
+        "error": manifest.get("error"),
+    }

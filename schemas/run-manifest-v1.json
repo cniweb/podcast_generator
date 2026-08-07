@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["schema_version", "generator", "topic", "status", "runtime", "models", "artifacts", "error"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "generator": {"const": "podcast"},
+    "topic": {"type": "string"},
+    "status": {"enum": ["running", "completed", "failed"]},
+    "runtime": {"type": "object"},
+    "models": {"type": "object"},
+    "artifacts": {"type": "object"},
+    "steps": {"type": "object"},
+    "retries": {"type": "integer", "minimum": 0},
+    "error": {"type": ["object", "null"]}
+  }
+}
