@@ -111,3 +111,23 @@ def test_output_directories_are_created(tmp_path, monkeypatch):
     assert Path(mod["TEMP_DIR"]).exists()
     assert Path(mod["OUTPUT_DIR"]).exists()
     assert Path(mod["ASSETS_DIR"]).exists()
+
+
+def test_generator_accepts_explicit_config(tmp_path):
+    mod = _load_partial_module()
+    config = mod["load_config"](
+        {
+            "GEMINI_API_KEY": "key",
+            "GOOGLE_APPLICATION_CREDENTIALS": "credentials.json",
+            "FREESOUND_API_KEY": "freesound",
+            "PODCAST_NAME": "Injected Podcast",
+            "PODCAST_SLOGAN": "Injected Slogan",
+            "SCRIPT_DEFAULT_MODEL": "script",
+            "PODCAST_TEMP_DIR": "temp",
+            "PODCAST_OUTPUT_DIR": "output",
+            "PODCAST_ASSETS_DIR": "assets",
+        },
+        tmp_path,
+    )
+    generator = mod["PodcastGenerator"]("Injected Topic", config=config)
+    assert generator.config is config

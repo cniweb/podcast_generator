@@ -3,6 +3,7 @@ import pytest
 from config import ConfigurationError, load_config
 
 
+@pytest.mark.unit
 def test_load_config_resolves_relative_paths(tmp_path):
     values = {
         "GEMINI_API_KEY": "secret",
@@ -20,6 +21,7 @@ def test_load_config_resolves_relative_paths(tmp_path):
     assert config.google_application_credentials == tmp_path / "credentials.json"
 
 
+@pytest.mark.unit
 def test_load_config_reports_missing_values():
     with pytest.raises(ConfigurationError, match="GEMINI_API_KEY"):
         load_config({}, "/tmp")
