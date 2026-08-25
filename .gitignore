@@ -215,3 +215,4 @@ finished_episodes/
 
 # macOS system files
 .DS_Store
+.DS_Store/
