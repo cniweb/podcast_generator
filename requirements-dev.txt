@@ -1,5 +1,5 @@
 -r requirements.txt
-pytest>=9.0.3
-pytest-cov>=6.2.1
-pymarkdownlnt>=0.9.35
-pip-audit>=2.9.0
+pytest>=9.1.1
+pytest-cov>=6.3.0
+pymarkdownlnt>=0.9.39
+pip-audit>=2.10.1
