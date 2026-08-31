@@ -1,5 +1,5 @@
 -r requirements.txt
 pytest>=9.0.3
-pytest-cov>=6.2.1
+pytest-cov>=7.1.0
 pymarkdownlnt>=0.9.35
 pip-audit>=2.9.0
