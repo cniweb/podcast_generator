@@ -1,4 +1,4 @@
-google-genai>=1.61.0
+google-genai>=2.20.0
 google-cloud-texttospeech>=2.34.0
 pytrends>=4.9.2
 pydub>=0.25.1
