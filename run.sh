@@ -124,7 +124,14 @@ fi
 PYTHON_BIN=".venv/bin/python"
 
 # Aktivieren des Environments
-source .venv/bin/activate
+if [ -f ".venv/bin/activate" ]; then
+    source .venv/bin/activate
+elif [ -f ".venv/Scripts/activate" ]; then
+    source .venv/Scripts/activate
+else
+    echo -e "${RED}Fehler: Konnte virtuelles Environment nicht aktivieren (.venv/bin/activate oder .venv/Scripts/activate fehlt).${NC}"
+    exit 1
+fi
 echo -e "${GREEN}✓ Virtual Environment aktiviert.${NC}"
 
 # 5. ABHÄNGIGKEITEN PRÜFEN (setup.sh aufrufen)

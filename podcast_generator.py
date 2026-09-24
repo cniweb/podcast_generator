@@ -22,6 +22,8 @@ from google import genai
 from google.genai import types
 from google.cloud import texttospeech
 from pydub import AudioSegment
+from pydub.silence import detect_nonsilent
+from pydub.effects import speedup
 from dotenv import load_dotenv
 from config import load_config
 from qa import validate_manifest
@@ -204,6 +206,11 @@ HTTP_TIMEOUT_SECONDS = 20
 HTTP_RETRY_ATTEMPTS = 3
 GEMINI_RETRY_ATTEMPTS = 3
 GEMINI_RETRY_BASE_DELAY = 2
+VOICE_MAX_SECONDS_PER_WORD = float(os.getenv("VOICE_MAX_SECONDS_PER_WORD", "0.9"))
+VOICE_MAX_ABSOLUTE_SECONDS = int(os.getenv("VOICE_MAX_ABSOLUTE_SECONDS", "900"))
+VOICE_MIN_NON_SILENT_RATIO = float(os.getenv("VOICE_MIN_NON_SILENT_RATIO", "0.25"))
+VOICE_MAX_LEADING_SILENCE_MS = int(os.getenv("VOICE_MAX_LEADING_SILENCE_MS", "12000"))
+VOICE_MAX_INTERNAL_SILENCE_MS = int(os.getenv("VOICE_MAX_INTERNAL_SILENCE_MS", "15000"))
 
 
 def _parse_csv_models(value: str) -> list[str]:
@@ -1446,20 +1453,78 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
             f"   -> Verwende TTS-Modelle: {', '.join(tts_models)} (Stimme: {voice_name})"
         )
 
-        chunks = _chunk_text(self.script_content)
-        print(f"   -> Verarbeite {len(chunks)} Text-Abschnitte...")
+        script_text = (self.script_content or "").strip()
+        if not script_text:
+            raise RuntimeError("Kein Skriptinhalt für TTS vorhanden.")
 
-        segments = self._tts_segments(chunks, tts_models, voice_name)
+        print("   -> Verarbeite gesamtes Skript in einem TTS-Durchlauf...")
+        last_error: Exception | None = None
+        final_voice: AudioSegment | None = None
+        # Track models that already hit their per-day quota during single-pass
+        single_pass_exhausted: set[str] = set()
 
-        # Remove any Nones in case something went terribly wrong
-        valid_segments = [s for s in segments if s is not None]
+        for model_tts in tts_models:
+            if model_tts in single_pass_exhausted:
+                continue
+            try:
+                candidate_voice = self._process_chunk(
+                    0, script_text, model_tts, voice_name
+                )
+                candidate_voice = self._auto_fix_voice_timing_if_needed(
+                    candidate_voice, script_text
+                )
+                self._assert_voice_duration_plausible(candidate_voice, script_text)
+                final_voice = candidate_voice
+                dur_s = len(candidate_voice) / 1000.0
+                print(f"   ✅ Stimme erfolgreich erzeugt ({model_tts}, {dur_s:.1f}s)")
+                break
+            except Exception as err:
+                if self._is_per_day_quota_error(err):
+                    print(
+                        f"   ⚠️ Single-Pass {model_tts}: per-day-Quota erschöpft – überspringe."
+                    )
+                    single_pass_exhausted.add(model_tts)
+                else:
+                    print(f"   ⚠️ Single-Pass fehlgeschlagen ({model_tts}): {err}")
+                last_error = err
+                final_voice = None
 
-        if not valid_segments:
-            raise RuntimeError("TTS lieferte keine Segmente.")
+        if final_voice is None:
+            # Pass only models not already known to be per-day-quota-exhausted
+            segmented_models = [m for m in tts_models if m not in single_pass_exhausted]
+            if not segmented_models:
+                print("   ⚠️ Alle TTS-Modelle per-day-Quota erschöpft – überspringe segmentierten Fallback.")
+            else:
+                try:
+                    candidate_voice = self._generate_voice_segmented_with_fallback(
+                        script_text, segmented_models, voice_name
+                    )
+                    candidate_voice = self._auto_fix_voice_timing_if_needed(
+                        candidate_voice, script_text
+                    )
+                    self._assert_voice_duration_plausible(candidate_voice, script_text)
+                    final_voice = candidate_voice
+                    dur_s = len(candidate_voice) / 1000.0
+                    print(f"   ✅ Stimme erfolgreich erzeugt (segmentiert, {dur_s:.1f}s)")
+                except Exception as seg_err:
+                    last_error = seg_err
+                    final_voice = None
+                    print(f"   ⚠️ Segmentierter Fallback fehlgeschlagen: {seg_err}")
 
-        final_voice = valid_segments[0]
-        for seg in valid_segments[1:]:
-            final_voice = final_voice.append(seg, crossfade=100)
+        if final_voice is None:
+            try:
+                print("      -> Nutze Cloud TTS mit SSML (Fallback) für das Gesamtskript...")
+                cloud_voice = self._generate_chunk_with_gcloud(0, script_text)
+                cloud_voice = self._auto_fix_voice_timing_if_needed(
+                    cloud_voice, script_text
+                )
+                self._assert_voice_duration_plausible(cloud_voice, script_text)
+                final_voice = cloud_voice
+                dur_s = len(cloud_voice) / 1000.0
+                print(f"   ✅ Stimme erfolgreich erzeugt (Cloud TTS, {dur_s:.1f}s)")
+            except Exception as gc_err:
+                print(f"   ❌ Google Cloud TTS Fehler (Fallback): {gc_err}")
+                raise last_error or gc_err
 
         self.audio_voice_path = os.path.join(
             TEMP_DIR, f"{self.topic_slug}_voice_raw.mp3"
@@ -1467,11 +1532,223 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
         final_voice.export(self.audio_voice_path, format="mp3")
         print("   -> Sprachdatei erstellt.")
 
+    def _generate_voice_segmented_with_model(
+        self, script_text: str, model_tts: str, voice_name: str
+    ) -> AudioSegment:
+        chunks = _chunk_text(script_text, max_chars=450)
+        if not chunks:
+            raise RuntimeError("Segmentiertes TTS: keine Chunks erzeugt.")
+
+        print(f"   -> Segmentiertes TTS mit {len(chunks)} Chunks ({model_tts})...")
+        merged: AudioSegment | None = None
+        for idx, chunk in enumerate(chunks, start=1):
+            seg = self._process_chunk(idx, chunk, model_tts, voice_name)
+            if merged is None:
+                merged = seg
+            else:
+                merged = merged.append(seg, crossfade=0)
+
+            if idx % 3 == 0 or idx == len(chunks):
+                print(f"      -> Segmentfortschritt: {idx}/{len(chunks)}")
+
+        if merged is None:
+            raise RuntimeError("Segmentiertes TTS lieferte keine Audiosegmente.")
+        return merged
+
+    def _generate_voice_segmented_with_fallback(
+        self, script_text: str, tts_models: list[str], voice_name: str
+    ) -> AudioSegment:
+        chunks = _chunk_text(script_text, max_chars=450)
+        if not chunks:
+            raise RuntimeError("Segmentiertes TTS: keine Chunks erzeugt.")
+
+        print(f"   -> Segmentiertes TTS mit {len(chunks)} Chunks (Modell-Fallback pro Chunk)...")
+        merged: AudioSegment | None = None
+        # Track models that hit their per-day quota so we skip them for remaining chunks
+        exhausted_models: set[str] = set()
+
+        for idx, chunk in enumerate(chunks, start=1):
+            available_models = [m for m in tts_models if m not in exhausted_models]
+            if not available_models:
+                raise RuntimeError(
+                    f"Chunk {idx}: Alle TTS-Modelle für heute erschöpft (per-day-Quota)."
+                )
+
+            chunk_error: Exception | None = None
+            chunk_seg: AudioSegment | None = None
+
+            for model_tts in available_models:
+                try:
+                    chunk_seg = self._process_chunk(idx, chunk, model_tts, voice_name)
+                    break
+                except Exception as err:
+                    if self._is_per_day_quota_error(err):
+                        print(
+                            f"   ⚠️  Modell {model_tts} hat per-day-Quota erschöpft – "
+                            f"wird für alle weiteren Chunks übersprungen."
+                        )
+                        exhausted_models.add(model_tts)
+                    else:
+                        print(
+                            f"   ⚠️  Chunk {idx}: {model_tts} fehlgeschlagen: {err}"
+                        )
+                    chunk_error = err
+                    continue
+
+            # If all models failed this chunk, attempt sub-chunking (splits at sentence boundaries)
+            if chunk_seg is None:
+                remaining_models = [m for m in tts_models if m not in exhausted_models]
+                if remaining_models and len(chunk) > 100:
+                    print(
+                        f"   ⚠️  Chunk {idx} fehlgeschlagen – versuche Sub-Splitting "
+                        f"(Chunk-Inhalt: {chunk[:80]!r}...)"
+                    )
+                    sub_chunks = _chunk_text(chunk, max_chars=150)
+                    if len(sub_chunks) > 1:
+                        sub_merged: AudioSegment | None = None
+                        sub_failed = False
+                        for sub_idx, sub_chunk in enumerate(sub_chunks, start=1):
+                            sub_seg: AudioSegment | None = None
+                            for model_tts in remaining_models:
+                                try:
+                                    sub_seg = self._process_chunk(
+                                        f"{idx}.{sub_idx}", sub_chunk, model_tts, voice_name
+                                    )
+                                    break
+                                except Exception as sub_err:
+                                    if self._is_per_day_quota_error(sub_err):
+                                        exhausted_models.add(model_tts)
+                                    continue
+                            if sub_seg is None:
+                                sub_failed = True
+                                break
+                            sub_merged = sub_seg if sub_merged is None else sub_merged.append(sub_seg, crossfade=0)
+                        if not sub_failed and sub_merged is not None:
+                            print(f"      -> Sub-Splitting von Chunk {idx} erfolgreich ({len(sub_chunks)} Teile)")
+                            chunk_seg = sub_merged
+                        else:
+                            print(f"   ❌ Sub-Splitting von Chunk {idx} ebenfalls fehlgeschlagen.")
+                else:
+                    print(
+                        f"   ❌ Chunk {idx} fehlgeschlagen "
+                        f"(Inhalt: {chunk[:80]!r})"
+                    )
+
+            if chunk_seg is None:
+                raise chunk_error or RuntimeError(
+                    f"Chunk {idx}: Kein Modell konnte Audio erzeugen."
+                )
+
+            merged = chunk_seg if merged is None else merged.append(chunk_seg, crossfade=0)
+            if idx % 3 == 0 or idx == len(chunks):
+                print(f"      -> Segmentfortschritt: {idx}/{len(chunks)}")
+
+        if merged is None:
+            raise RuntimeError("Segmentiertes TTS lieferte keine Audiosegmente.")
+        return merged
+
+    def _auto_fix_voice_timing_if_needed(
+        self, voice_segment: AudioSegment, script_text: str
+    ) -> AudioSegment:
+        words = len((script_text or "").split())
+        if words <= 0 or len(voice_segment) <= 0:
+            return voice_segment
+
+        duration_s = len(voice_segment) / 1000.0
+        max_allowed_s = min(
+            words * VOICE_MAX_SECONDS_PER_WORD,
+            float(VOICE_MAX_ABSOLUTE_SECONDS),
+        )
+
+        if duration_s <= max_allowed_s:
+            return voice_segment
+
+        speed_factor = duration_s / max_allowed_s
+        if speed_factor > 2.5:
+            return voice_segment
+
+        speed_factor = max(1.05, min(speed_factor, 2.5))
+        print(
+            f"   ⚠️ Stimme zu lang ({duration_s:.1f}s). Auto-Korrektur mit Tempo x{speed_factor:.2f}..."
+        )
+        fixed = speedup(
+            voice_segment,
+            playback_speed=speed_factor,
+            chunk_size=150,
+            crossfade=20,
+        )
+        fixed_s = len(fixed) / 1000.0
+        print(f"   -> Auto-Korrektur abgeschlossen: {fixed_s:.1f}s")
+        return fixed
+
+    def _assert_voice_duration_plausible(
+        self, voice_segment: AudioSegment, script_text: str
+    ):
+        words = len((script_text or "").split())
+        if words <= 0:
+            raise RuntimeError("Plausibilitäts-Check fehlgeschlagen: Skript enthält 0 Wörter.")
+
+        duration_s = len(voice_segment) / 1000.0
+        max_by_words = words * VOICE_MAX_SECONDS_PER_WORD
+        max_allowed_s = min(max_by_words, float(VOICE_MAX_ABSOLUTE_SECONDS))
+        wpm = (words * 60.0 / duration_s) if duration_s > 0 else 0.0
+
+        if duration_s > max_allowed_s:
+            raise RuntimeError(
+                "Plausibilitäts-Check fehlgeschlagen: Sprecher-Audio unplausibel lang "
+                f"({duration_s:.1f}s bei {words} Wörtern, {wpm:.1f} WPM). "
+                f"Grenze: {max_allowed_s:.1f}s "
+                f"(VOICE_MAX_SECONDS_PER_WORD={VOICE_MAX_SECONDS_PER_WORD}, "
+                f"VOICE_MAX_ABSOLUTE_SECONDS={VOICE_MAX_ABSOLUTE_SECONDS})."
+            )
+
+        # Guardrail gegen "nur Intro + lange Stille".
+        silence_thresh = -35 if voice_segment.dBFS == float("-inf") else voice_segment.dBFS - 16
+        nonsilent_ranges = detect_nonsilent(
+            voice_segment,
+            min_silence_len=1200,
+            silence_thresh=silence_thresh,
+        )
+        nonsilent_ms = sum(end - start for start, end in nonsilent_ranges)
+        nonsilent_ratio = (nonsilent_ms / len(voice_segment)) if len(voice_segment) > 0 else 0.0
+        if nonsilent_ratio < VOICE_MIN_NON_SILENT_RATIO:
+            raise RuntimeError(
+                "Plausibilitäts-Check fehlgeschlagen: Sprecher-Audio enthält zu viel Stille "
+                f"({nonsilent_ratio:.1%} nicht-still, Minimum {VOICE_MIN_NON_SILENT_RATIO:.1%})."
+            )
+
+        if nonsilent_ranges:
+            leading_silence_ms = nonsilent_ranges[0][0]
+            if leading_silence_ms > VOICE_MAX_LEADING_SILENCE_MS:
+                raise RuntimeError(
+                    "Plausibilitäts-Check fehlgeschlagen: zu lange Start-Stille "
+                    f"({leading_silence_ms}ms, Maximum {VOICE_MAX_LEADING_SILENCE_MS}ms)."
+                )
+
+            max_gap_ms = 0
+            for i in range(1, len(nonsilent_ranges)):
+                prev_end = nonsilent_ranges[i - 1][1]
+                cur_start = nonsilent_ranges[i][0]
+                max_gap_ms = max(max_gap_ms, cur_start - prev_end)
+            if max_gap_ms > VOICE_MAX_INTERNAL_SILENCE_MS:
+                raise RuntimeError(
+                    "Plausibilitäts-Check fehlgeschlagen: zu lange interne Stille-Lücke "
+                    f"({max_gap_ms}ms, Maximum {VOICE_MAX_INTERNAL_SILENCE_MS}ms)."
+                )
+
+        print(
+            f"   -> Plausibilitäts-Check ok: {duration_s:.1f}s bei {words} Wörtern ({wpm:.1f} WPM)."
+        )
+
     def _is_rate_limit_error(self, exc: Exception) -> bool:
         msg = str(exc).lower()
         if "requests_per_model_per_day" in msg or "quota exceeded" in msg:
             return False
         return "429" in msg or "resource_exhausted" in msg or "too many requests" in msg
+
+    def _is_per_day_quota_error(self, exc: Exception) -> bool:
+        msg = str(exc).lower()
+        return "requests_per_model_per_day" in msg or "quota exceeded" in msg
 
     def _part_to_segment(
         self, part: types.Part, chunk_idx: int, cand_idx: int
@@ -1528,10 +1805,6 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
     def _generate_chunk_with_gemini(
         self, chunk_idx: int, chunk_text: str, model_tts: str, voice_name: str
     ) -> AudioSegment:
-        content = types.Content(
-            role="user", parts=[types.Part.from_text(text=chunk_text)]
-        )
-
         cfg = types.GenerateContentConfig(
             temperature=0.3,
             response_modalities=["audio"],
@@ -1545,7 +1818,7 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
         )
 
         resp = _gemini_generate_content_with_retry(
-            model=model_tts, contents=[content], config=cfg
+            model=model_tts, contents=chunk_text, config=cfg
         )
         for cand_idx, cand in enumerate(resp.candidates or []):
             if not cand.content:
@@ -1553,12 +1826,25 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
                     f"   ⚠️ Leerer Content in Candidate {cand_idx} (Grund: {getattr(cand, 'finish_reason', 'Unbekannt')})"
                 )
                 continue
+            segments: list[AudioSegment] = []
             for part in cand.content.parts or []:
+                if not getattr(part, "inline_data", None):
+                    continue
                 try:
-                    return self._part_to_segment(part, chunk_idx, cand_idx)
+                    segments.append(self._part_to_segment(part, chunk_idx, cand_idx))
                 except RuntimeError as e:
                     print(f"   ⚠️ {e}")
                     continue
+
+            if segments:
+                merged = segments[0]
+                for seg in segments[1:]:
+                    merged = merged.append(seg, crossfade=0)
+                if len(segments) > 1:
+                    print(
+                        f"   -> Candidate {cand_idx} lieferte {len(segments)} Audio-Parts, zusammengeführt."
+                    )
+                return merged
         raise RuntimeError(
             f"Keine Audio-Daten im Response (Chunk {chunk_idx}, Modell {model_tts})"
         )
@@ -1601,6 +1887,7 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
                     idx, chunk, model_tts, voice_name
                 )
             except Exception as e:
+                err_msg = str(e)
                 if self._is_rate_limit_error(e) and attempt < max_attempts:
                     delay = 4**attempt
                     print(
@@ -1620,6 +1907,13 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
                     )
                     time.sleep(delay)
                     continue
+                if "Keine Audio-Daten im Response" in err_msg and attempt < max_attempts:
+                    delay = 1.5 * attempt
+                    print(
+                        f"   ⚠️  Leere Audio-Antwort bei Chunk {idx} (Versuch {attempt}/{max_attempts}), warte {delay:.1f}s..."
+                    )
+                    time.sleep(delay)
+                    continue
                 print(f"   ❌ Fehler bei Chunk {idx}: {e}")
                 raise
         raise RuntimeError(f"Chunk {idx}: Unbekannter Fehler bei Gemini TTS")
@@ -1632,7 +1926,8 @@ SCHREIB DIREKT DEN TEXT! KEIN DRUMHERUM!"""
             for model_tts in tts_models:
                 try:
                     seg = self._process_chunk(idx, chunk, model_tts, voice_name)
-                    print(f"   ✅ Chunk {idx + 1}/{len(chunks)} fertig ({model_tts})")
+                    dur_s = len(seg) / 1000.0
+                    print(f"   ✅ Chunk {idx + 1}/{len(chunks)} fertig ({model_tts}, {dur_s:.1f}s)")
                     return idx, seg
                 except Exception as err:
                     gem_err = err
