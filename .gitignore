@@ -216,3 +216,8 @@ finished_episodes/
 # macOS system files
 .DS_Store
 .DS_Store/
+
+# Agent tooling (local only)
+.claude/
+.serena/
+CLAUDE.md
